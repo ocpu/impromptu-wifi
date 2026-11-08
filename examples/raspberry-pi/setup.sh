@@ -77,6 +77,12 @@ if [ "$BACKEND" = networkmanager ]; then
         say "enabling NetworkManager"
         systemctl enable --now NetworkManager
     fi
+    # Fresh Raspberry Pi OS 13 images start with NetworkManager's Wi-Fi
+    # radio switched off; nothing could be joined.
+    if [ "$(nmcli radio wifi)" = disabled ]; then
+        say "switching NetworkManager's Wi-Fi radio on"
+        nmcli radio wifi on
+    fi
 else
     # dhcpcd runs wpa_supplicant for wlan0 with /etc/wpa_supplicant/
     # wpa_supplicant.conf. The daemon needs its control socket, open to the
@@ -95,6 +101,16 @@ fi
 
 # --- BlueZ -------------------------------------------------------------------
 case "$TRANSPORT" in *--ble*)
+    # Fresh Raspberry Pi OS images can start with Bluetooth soft-blocked;
+    # BlueZ then can't power the adapter. systemd-rfkill keeps the change
+    # across reboots.
+    for r in /sys/class/rfkill/rfkill*; do
+        [ -e "$r/type" ] || continue
+        if [ "$(cat "$r/type")" = bluetooth ] && [ "$(cat "$r/soft")" = 1 ]; then
+            say "unblocking Bluetooth (rfkill)"
+            echo 0 >"$r/soft"
+        fi
+    done
     dropin=/etc/systemd/system/bluetooth.service.d/impromptu-wifi.conf
     bluetoothd=$(systemctl show -p ExecStart --value bluetooth | sed -n 's/.*path=\([^ ;]*\).*/\1/p')
     if [ ! -f "$dropin" ]; then
@@ -120,6 +136,37 @@ EOF
         cp -n /etc/bluetooth/main.conf /etc/bluetooth/main.conf.orig
         sed -i -E 's/^#(LE)?MinAdvertisementInterval=.*/\1MinAdvertisementInterval=160/; s/^#(LE)?MaxAdvertisementInterval=.*/\1MaxAdvertisementInterval=240/' /etc/bluetooth/main.conf
         restart_bluetooth=1
+    fi
+    # Desktop images run PipeWire, whose WirePlumber offers a BLE-MIDI
+    # service and reads a client's. Both need encryption, so every
+    # provisioning session from a Linux desktop (which has the same) turned
+    # into a pairing attempt: refused, the link dropped; and one laptop's
+    # BlueZ 5.87 crashed on the failure.
+    if command -v wireplumber >/dev/null 2>&1; then
+        if wireplumber --version 2>/dev/null | grep -q 'libwireplumber 0\.5'; then
+            conf=/etc/wireplumber/wireplumber.conf.d/90-impromptu-wifi-no-ble-midi.conf
+            if [ ! -f "$conf" ]; then
+                say "turning off WirePlumber's BLE-MIDI"
+                mkdir -p "$(dirname "$conf")"
+                printf '%s\n' '# impromptu-wifi-device: no BLE-MIDI on a provisioning device.' \
+                    'wireplumber.profiles = {' '  main = {' '    monitor.bluez-midi = disabled' '  }' '}' >"$conf"
+                restart_wireplumber=1
+            fi
+        else
+            conf=/etc/wireplumber/bluetooth.lua.d/90-impromptu-wifi-no-ble-midi.lua
+            if [ ! -f "$conf" ]; then
+                say "turning off WirePlumber's BLE-MIDI"
+                mkdir -p "$(dirname "$conf")"
+                printf '%s\n' '-- impromptu-wifi-device: no BLE-MIDI on a provisioning device.' \
+                    'bluez_midi_monitor.enabled = false' >"$conf"
+                restart_wireplumber=1
+            fi
+        fi
+        if [ -n "${restart_wireplumber:-}" ]; then
+            for uid in $(ps -C wireplumber -o uid= | sort -u); do
+                systemctl --user -M "$(id -nu "$uid")@" restart wireplumber || true
+            done
+        fi
     fi
     if [ -n "${restart_bluetooth:-}" ]; then
         systemctl daemon-reload
