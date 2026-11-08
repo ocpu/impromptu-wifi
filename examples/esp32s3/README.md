@@ -123,5 +123,12 @@ either.
 * **The second core is not started.** `esp-storage` refuses flash writes
   while the second core runs (its default `MultiCoreStrategy::Error`), so a
   firmware that starts it needs `FlashStorage::multicore_auto_park`.
-* **Not yet run on hardware.** The firmware builds and links in CI; it has not
-  been flashed and tested against a real client.
+* **Tested on one board.** On 2026-11-08 this firmware ran on an ESP32-S3
+  (revision v0.2, 16 MB flash, CH343 USB-to-UART bridge, RGB LED on GPIO38
+  taking red first) with the `impromptu-wifi` CLI on Linux (BlueZ):
+  provisioning over serial and over BLE with a button press, a failed join,
+  rejoining the saved network after a restart, the factory reset, the
+  yellow, green and red LED patterns, and both transports agreeing on
+  `Provisioned`. Identify was accepted over BLE, but its white blink and the
+  cyan press flash were not observed. Not tested: losing the network and
+  reopening provisioning, ESP Web Tools and Home Assistant.
