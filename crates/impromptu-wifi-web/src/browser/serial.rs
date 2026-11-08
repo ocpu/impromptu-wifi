@@ -5,8 +5,7 @@ use js_sys::futures::JsFuture;
 use js_sys::{Reflect, Uint8Array};
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{
-    ReadableStreamDefaultReader, SerialOptions, SerialOutputSignals, SerialPort,
-    WritableStreamDefaultWriter,
+    ReadableStreamDefaultReader, SerialOptions, SerialPort, WritableStreamDefaultWriter,
 };
 
 use super::time::{sleep, with_timeout};
@@ -34,19 +33,15 @@ pub struct WebSerialPort {
 impl WebSerialPort {
     /// Ask the user to choose a port, and open it at `baud`.
     ///
-    /// DTR and RTS are cleared after opening: on ESP32 boards these lines
-    /// drive the reset and boot pins, and leaving them asserted can hold the
-    /// chip in reset or start its bootloader.
+    /// DTR and RTS are left as the browser and operating system set them, as
+    /// `impromptu-wifi-host` does: on ESP32 boards these lines drive the
+    /// reset and boot pins, and changing one line at a time can reset the
+    /// chip.
     pub async fn request(baud: u32) -> Result<Self, JsValue> {
         let window = web_sys::window().ok_or("no window")?;
         let serial = window.navigator().serial();
         let port: SerialPort = serial.request_port().await?;
         port.open(&SerialOptions::new(baud)).await?;
-        let signals = SerialOutputSignals::new();
-        signals.set_data_terminal_ready(false);
-        signals.set_request_to_send(false);
-        // Not every adapter has these lines; a failure here is harmless.
-        let _ = port.set_signals_with_signals(&signals).await;
         let reader = port
             .readable()
             .get_reader()

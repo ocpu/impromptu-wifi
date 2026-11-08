@@ -16,10 +16,10 @@ cleared after each attempt.
 - A browser with the Web API for the transport. The page shows a button only
   for an API the browser provides.
 
-  | Transport | Browser API | Tested with (see the [support matrix](../reference/support-matrix.md)) |
+  | Transport | Browser API | Status |
   |---|---|---|
-  | USB serial | [Web Serial](https://developer.mozilla.org/en-US/docs/Web/API/Web_Serial_API) | Firefox on Linux |
-  | Bluetooth LE | [Web Bluetooth](https://developer.mozilla.org/en-US/docs/Web/API/Web_Bluetooth_API) | Chrome on Android |
+  | USB serial | [Web Serial](https://developer.mozilla.org/en-US/docs/Web/API/Web_Serial_API) | See the [support matrix](../reference/support-matrix.md) |
+  | Bluetooth LE | [Web Bluetooth](https://developer.mozilla.org/en-US/docs/Web/API/Web_Bluetooth_API) | See the [support matrix](../reference/support-matrix.md) |
 
   Both APIs work only on pages served over HTTPS or from `localhost`. The
   MDN pages linked above list which browsers provide each API.
@@ -34,10 +34,10 @@ cleared after each attempt.
 2. Select **Connect over USB serial** or **Connect over Bluetooth**.
 3. Choose the device in the browser's list.
 
-   Over serial the page opens the port at 115200 baud, clears the DTR and
-   RTS lines so that an ESP32 board is not held in reset, and discards output
-   that the device sent before the port was opened. Over Bluetooth the list
-   shows only devices that advertise the Improv service.
+   Over serial the page opens the port at 115200 baud, leaves the DTR and
+   RTS lines as the browser sets them (as the command-line tool does), and
+   discards output that the device sent before the port was opened. Over
+   Bluetooth the list shows only devices that advertise the Improv service.
 
 If you close the list without choosing, the page stays at the connect
 buttons. One command runs at a time; the buttons are disabled until it
@@ -74,7 +74,7 @@ Each command waits up to 10 seconds for an answer.
 
 | Symptom | Cause and action |
 |---|---|
-| No connect button | The browser does not provide the API; the page says which one. Use another browser from the table above. |
+| No connect button | The browser does not provide the API; the page says which one. Use a browser that provides it. |
 | The Bluetooth list is empty | The device is not advertising: it is provisioned, or (Linux daemon) online, or out of range. See [Troubleshoot Bluetooth LE provisioning](troubleshoot-bluetooth.md). |
 | "the device disconnected" | The cable was unplugged, the device restarted or went out of range. Connect again. |
 | "No answer from the device within 10 s" | The serial port belongs to another device, or the firmware does not run Improv on that port. |

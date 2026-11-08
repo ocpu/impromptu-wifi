@@ -46,11 +46,15 @@ impl<T> Slot<T> {
         }
     }
 
-    /// Put the value back, unless the slot was cleared meanwhile.
-    pub fn put(&self, value: T) {
+    /// Put the value back. If the slot was cleared meanwhile, the value is
+    /// returned, so the caller can close it.
+    pub fn put(&self, value: T) -> Result<(), T> {
         let mut state = self.state.borrow_mut();
         if matches!(*state, State::InUse) {
             *state = State::Ready(value);
+            Ok(())
+        } else {
+            Err(value)
         }
     }
 
@@ -73,7 +77,7 @@ mod tests {
         let slot = Slot::new(7);
         let v = slot.take().unwrap();
         assert_eq!(slot.take(), Err(Unavailable::Busy));
-        slot.put(v);
+        assert_eq!(slot.put(v), Ok(()));
         assert_eq!(slot.take(), Ok(7));
     }
 
@@ -82,7 +86,7 @@ mod tests {
         let slot = Slot::new(7);
         let v = slot.take().unwrap();
         assert_eq!(slot.clear(), None);
-        slot.put(v);
+        assert_eq!(slot.put(v), Err(7), "the value comes back to be closed");
         assert_eq!(slot.take(), Err(Unavailable::Gone));
     }
 }

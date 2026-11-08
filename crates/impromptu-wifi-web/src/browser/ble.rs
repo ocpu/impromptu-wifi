@@ -15,7 +15,7 @@ use web_sys::{
     BluetoothRemoteGattServer, RequestDeviceOptions,
 };
 
-use crate::queue::{Event, NotificationQueue};
+use crate::queue::{rpc_frame_complete, Event, NotificationQueue};
 use crate::uuid::uuid_string;
 use crate::WebError;
 
@@ -74,9 +74,9 @@ impl WebGatt {
             queue: queue.clone(),
             listeners: Vec::new(),
         };
-        gatt.listen(&state, Event::State);
-        gatt.listen(&error, Event::Error);
-        gatt.listen(&rpc_result, |_| Event::RpcResult);
+        gatt.listen(&state, |v| Event::State(v.first().copied().unwrap_or(0)));
+        gatt.listen(&error, |v| Event::Error(v.first().copied().unwrap_or(0)));
+        gatt.listen(&rpc_result, Event::RpcResult);
         let q = queue.clone();
         gatt.add(
             device.unchecked_ref(),
@@ -99,16 +99,16 @@ impl WebGatt {
         self.server.disconnect();
     }
 
-    fn listen(&mut self, c: &BluetoothRemoteGattCharacteristic, event: fn(u8) -> Event) {
+    fn listen(&mut self, c: &BluetoothRemoteGattCharacteristic, event: fn(Vec<u8>) -> Event) {
         let q = self.queue.clone();
         let listener = Closure::new(move |e: web_sys::Event| {
-            let first = e
+            let value = e
                 .target()
                 .and_then(|t| t.dyn_into::<BluetoothRemoteGattCharacteristic>().ok())
                 .and_then(|c| c.value())
-                .filter(|v| v.byte_length() > 0)
-                .map_or(0, |v| v.get_uint8(0));
-            q.push(event(first));
+                .map(|v| bytes(&v))
+                .unwrap_or_default();
+            q.push(event(value));
         });
         self.add(c.unchecked_ref(), "characteristicvaluechanged", listener);
     }
@@ -147,6 +147,15 @@ fn is_network_error(e: &JsValue) -> bool {
         .is_some_and(|n| n == "NetworkError")
 }
 
+fn bytes(v: &DataView) -> Vec<u8> {
+    Uint8Array::new_with_byte_offset_and_length(
+        &v.buffer(),
+        v.byte_offset() as u32,
+        v.byte_length() as u32,
+    )
+    .to_vec()
+}
+
 fn first_byte(v: &DataView) -> u8 {
     if v.byte_length() > 0 {
         v.get_uint8(0)
@@ -159,6 +168,8 @@ impl GattClient for WebGatt {
     type Error = WebError;
 
     async fn write_rpc_command(&mut self, chunk: &[u8]) -> Result<(), WebError> {
+        // Answers still queued belong to an earlier command that timed out.
+        self.queue.drain_stale();
         let data = Uint8Array::from(chunk);
         self.rpc_command
             .write_value_with_response_with_u8_array(&data)
@@ -173,19 +184,17 @@ impl GattClient for WebGatt {
             Event::State(v) => Ok(Notification::State(v)),
             Event::Error(v) => Ok(Notification::Error(v)),
             Event::Disconnected => Err(WebError::Disconnected),
-            Event::RpcResult => {
-                // A notification can be cut to the MTU, which Web Bluetooth
-                // doesn't expose; a read returns the whole value.
-                let value: DataView = self.rpc_result.read_value().await.map_err(gatt_error)?;
-                let bytes = Uint8Array::new_with_byte_offset_and_length(
-                    &value.buffer(),
-                    value.byte_offset() as u32,
-                    value.byte_length() as u32,
-                )
-                .to_vec();
-                let n = bytes.len().min(buf.len());
-                buf[..n].copy_from_slice(&bytes[..n]);
-                Ok(Notification::RpcResult(bytes.len()))
+            Event::RpcResult(mut value) => {
+                if !rpc_frame_complete(&value) {
+                    // Cut to the MTU, which Web Bluetooth doesn't expose; a
+                    // read returns the whole value, and queues an echo of it.
+                    let full: DataView = self.rpc_result.read_value().await.map_err(gatt_error)?;
+                    value = bytes(&full);
+                    self.queue.discard_echo(&value);
+                }
+                let n = value.len().min(buf.len());
+                buf[..n].copy_from_slice(&value[..n]);
+                Ok(Notification::RpcResult(value.len()))
             }
         }
     }

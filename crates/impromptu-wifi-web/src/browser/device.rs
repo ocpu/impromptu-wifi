@@ -329,27 +329,25 @@ impl Device {
             Unavailable::Gone => JsError::new("the device disconnected"),
         })?;
         let (conn, result) = f(conn).await;
-        match result {
-            Ok(v) => {
-                self.conn.put(conn);
-                Ok(v)
-            }
-            Err(Failure {
-                message,
-                disconnected,
-            }) => {
-                if disconnected {
-                    self.conn.put(conn);
-                    if let Some(conn) = self.conn.clear() {
-                        drop_conn(conn).await;
-                    }
-                    Err(JsError::new("the device disconnected"))
-                } else {
-                    self.conn.put(conn);
-                    Err(JsError::new(&message))
-                }
-            }
+        let disconnected = matches!(&result, Err(f) if f.disconnected);
+        // Close the link if the device went away, or if `disconnect()` was
+        // called while this command ran.
+        let gone = if disconnected {
+            Some(conn)
+        } else {
+            self.conn.put(conn).err()
+        };
+        if let Some(conn) = gone {
+            self.conn.clear();
+            drop_conn(conn).await;
         }
+        result.map_err(|f| {
+            JsError::new(if f.disconnected {
+                "the device disconnected"
+            } else {
+                &f.message
+            })
+        })
     }
 }
 

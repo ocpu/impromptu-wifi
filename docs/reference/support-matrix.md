@@ -78,7 +78,7 @@ Tools and apps that provision a device.
 | ESP Web Tools (improv-wifi.com) | Firefox with Web Serial | **Tested** (ESP32-S3) | - | **Tested** |
 | Browser client (`impromptu-wifi-web`, project site) | Firefox on Linux (Web Serial only) | Built | - | **Built** |
 | Browser client (`impromptu-wifi-web`, project site) | Chrome on Android | Built | Built | **Built** |
-| Browser client (`impromptu-wifi-web`, project site) | Chrome or Edge on desktop Linux, macOS, Windows | Built | Built | **Untested** |
+| Browser client (`impromptu-wifi-web`, project site) | Chrome or Edge on desktop Linux, macOS, Windows | Built | Built | **Built** |
 | Phones (Android, iOS) | - | - | - | **Untested** |
 | Firmware as a client (`impromptu-wifi-client`, `trouble-central`) | `no_std` targets | Built | Built | **Built** |
 
