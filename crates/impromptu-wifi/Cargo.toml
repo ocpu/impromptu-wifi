@@ -5,10 +5,11 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 # Without features. `embassy*`, `esp`, `host*` and `linux*` need 1.91.
 rust-version.workspace = true
 categories = ["embedded", "no-std", "network-programming"]
-keywords = ["improv", "wifi", "provisioning", "esphome", "ble"]
+keywords = ["improv-wifi", "wifi", "provisioning", "esphome", "ble"]
 readme = "../../README.md"
 
 [features]
