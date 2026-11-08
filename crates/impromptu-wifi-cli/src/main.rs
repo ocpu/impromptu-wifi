@@ -135,7 +135,13 @@ async fn run(cli: Cli) -> Result<()> {
         let device = ble::find(&adapter, query, Duration::from_secs(10))
             .await?
             .ok_or_else(|| {
-                anyhow!("no Improv device matching {query:?} found; try `impromptu-wifi discover`")
+                anyhow!(
+                    "no Improv device matching {query:?} is advertising\n\
+                     A provisioned device stops advertising over Bluetooth, as the Improv \
+                     Wi-Fi spec asks; reach it over serial, or reset it to provision it \
+                     again. Otherwise check that it is powered and in range; \
+                     `impromptu-wifi discover` lists the devices in range."
+                )
             })?;
         let gatt = ble::BleGattClient::connect(device.peripheral).await?;
         let mut client = Client::new(BleClientLink::new(gatt));
@@ -269,6 +275,10 @@ where
     Ok(())
 }
 
+/// A scan this long may be cut short by the device: this crate's driver
+/// reports at most 16 networks, the strongest.
+const LONG_SCAN: usize = 16;
+
 /// How long a scan after a failed join may take.
 const SCAN_TIME: Duration = Duration::from_secs(20);
 
@@ -287,10 +297,17 @@ fn join_failure(ssid: &str, password: &str, scan: Option<&[ScannedNetwork]>) -> 
         let similar = networks
             .iter()
             .find(|n| n.ssid.trim().eq_ignore_ascii_case(ssid.trim()));
-        let hint = match similar {
+        let mut hint = match similar {
             Some(n) => format!(" It does see \"{}\": is that the one?", n.ssid),
             None => String::new(),
         };
+        if networks.len() >= LONG_SCAN {
+            hint.push_str(&format!(
+                " The scan listed {} networks; devices often report only their \
+                 strongest ones, so a weak network can be missing from it.",
+                networks.len()
+            ));
+        }
         return anyhow!(
             "the device could not join \"{ssid}\": it can't see that network\n\
              Check that the name is exact (it is case-sensitive), that the network is \
@@ -507,6 +524,10 @@ mod tests {
 
         let m = message("Lab", "pw", Some(&scan));
         assert!(m.contains("WPA3 only"), "{m}");
+
+        let crowded: Vec<_> = (0..16).map(|i| net(&format!("n{i}"), true, None)).collect();
+        let m = message("Garage", "pw", Some(&crowded));
+        assert!(m.contains("listed 16 networks"), "{m}");
 
         let m = message("Garage", "pw", None);
         assert!(m.contains("case-sensitive"), "{m}");
