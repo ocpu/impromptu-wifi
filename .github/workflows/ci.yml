@@ -90,6 +90,22 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo clippy --locked -p impromptu-wifi-host -p impromptu-wifi-cli --all-targets -- -D warnings
 
+  web:
+    name: Web client (wasm32)
+    runs-on: ubuntu-24.04
+    env:
+      # web-sys exposes Web Serial and Web Bluetooth only with this cfg.
+      RUSTFLAGS: --cfg=web_sys_unstable_apis
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master 2026-10-16
+        with:
+          toolchain: ${{ env.RUST_STABLE }}
+          targets: wasm32-unknown-unknown
+          components: clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: cargo clippy --locked -p impromptu-wifi-web --target wasm32-unknown-unknown -- -D warnings
+
   no-std:
     name: no_std (${{ matrix.target }})
     runs-on: ubuntu-24.04
@@ -191,7 +207,7 @@ jobs:
           # impromptu-wifi-embassy (smoltcp 0.13) and the host crates.
           - rust: "1.91"
             args: >-
-              -p impromptu-wifi -p impromptu-wifi-embassy -p impromptu-wifi-host -p impromptu-wifi-cli -p impromptu-wifi-linux
+              -p impromptu-wifi -p impromptu-wifi-embassy -p impromptu-wifi-host -p impromptu-wifi-cli -p impromptu-wifi-linux -p impromptu-wifi-web
               --features impromptu-wifi-embassy/trouble,impromptu-wifi-embassy/trouble-central,impromptu-wifi-embassy/usb,impromptu-wifi-embassy/embassy-net,impromptu-wifi-embassy/flash,impromptu-wifi-linux/daemon,impromptu-wifi/embassy-trouble,impromptu-wifi/embassy-trouble-central,impromptu-wifi/embassy-usb,impromptu-wifi/embassy-net,impromptu-wifi/embassy-flash,impromptu-wifi/host-serial,impromptu-wifi/host-ble,impromptu-wifi/linux-networkmanager,impromptu-wifi/linux-hostnamed,impromptu-wifi/linux-serial,impromptu-wifi/linux-bluez
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

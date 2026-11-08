@@ -1,0 +1,32 @@
+[package]
+name = "impromptu-wifi-web"
+description = "Improv Wi-Fi client for web browsers: Web Serial and Web Bluetooth, compiled to WebAssembly"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+# wasm-bindgen 0.2.129 needs 1.81; kept with the host crates.
+rust-version = "1.91"
+categories = ["wasm", "network-programming"]
+keywords = ["improv", "wifi", "provisioning", "webbluetooth", "webserial"]
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+impromptu-wifi-client.workspace = true
+impromptu-wifi-traits.workspace = true
+impromptu-wifi-serial.workspace = true
+impromptu-wifi-ble.workspace = true
+embedded-io-async.workspace = true
+embassy-futures.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "=0.2.129"
+wasm-bindgen-futures = "0.4.79"
+js-sys = "0.3.106"
+web-sys = { version = "0.3.106", features = [] }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(web_sys_unstable_apis)"] }
