@@ -300,13 +300,18 @@ async fn serve(args: Args) -> Result<std::convert::Infallible> {
     // Each transport owns clones of the backends. Joins made through either
     // are announced to the other, so both report the same state.
     let (joined, _) = join_channel();
+    let serial_too = args.serial.is_some();
     let ble = args.ble.then(|| {
-        tokio::spawn(serve_ble(
-            bus.clone(),
-            backend.clone(),
-            device.clone(),
-            joined.clone(),
-        ))
+        let ble = serve_ble(bus.clone(), backend.clone(), device.clone(), joined.clone());
+        tokio::spawn(async move {
+            let result = ble.await;
+            // With serial as well, nothing awaits this task: report the
+            // failure here, and let serial carry on.
+            if let (true, Err(e)) = (serial_too, &result) {
+                log::error!("Bluetooth: {e:#}; serving serial only");
+            }
+            result
+        })
     });
     match args.serial {
         Some(path) => {
