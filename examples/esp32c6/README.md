@@ -99,6 +99,9 @@ provision it, over serial and BLE respectively.
 ## Limitations
 
 * **No hostname.** Clients can't read or set the hostname.
+* **No WPA3-only networks.** esp-radio 1.0.0-beta.1 does not support WPA3,
+  so a network in WPA3-Personal-only mode fails to join. WPA2 and WPA2/WPA3
+  transition networks work.
 * **The LED is assumed on GPIO8**, as on the ESP32-C6-DevKitC-1. Other
   boards need a different pin, or none.
 * **Not yet run on hardware.** The firmware builds and links in CI; it has not

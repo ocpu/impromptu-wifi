@@ -27,6 +27,14 @@
 //!   APIs, and esp-hal's build script refuses to build otherwise.
 //! * A global allocator (for example `esp-alloc`), which esp-radio requires.
 //!
+//! # WPA3
+//!
+//! esp-radio 1.0.0-beta.1 does not support WPA3 (its module documentation
+//! says so, and its station configuration has no WPA3 method). A network in
+//! WPA3-Personal-only mode can't be joined; `connect` fails. WPA2/WPA3
+//! transition networks are joined over WPA2. Observed on an ESP32-S3 with a
+//! phone hotspot, 2026-11-08.
+//!
 //! Without a stack, `connect` succeeds on association and returns no URL.
 //! With one, it waits for DHCP and returns `http://<address>`, failing with
 //! [`ConnectError::Timeout`] if no address arrives: a device without an
@@ -96,8 +104,8 @@ impl<'d, 'n> EspWifi<'d, 'n> {
     /// Also accept WPA (version 1) networks.
     ///
     /// ESP-IDF treats the configured security as a minimum. The default
-    /// minimum is WPA2, which still joins WPA2/WPA3 and WPA3 networks but
-    /// refuses WPA-only ones; this lowers it to WPA.
+    /// minimum is WPA2, which joins WPA2 networks and WPA2/WPA3 transition
+    /// networks (over WPA2) but refuses WPA-only ones; this lowers it to WPA.
     pub fn allow_legacy_wpa(mut self, allow: bool) -> Self {
         self.allow_legacy_wpa = allow;
         self

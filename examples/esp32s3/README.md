@@ -117,6 +117,9 @@ either.
 ## Limitations
 
 * **No hostname.** Clients can't read or set the hostname.
+* **No WPA3-only networks.** esp-radio 1.0.0-beta.1 does not support WPA3,
+  so a network in WPA3-Personal-only mode fails to join. WPA2 and WPA2/WPA3
+  transition networks work.
 * **The LED is assumed on GPIO38**, as on the ESP32-S3-DevKitC-1 v1.1.
   Version 1.0 of that board has it on GPIO48; other boards need a different
   pin, or none. Change it in `main.rs`.
@@ -128,7 +131,8 @@ either.
   taking red first) with the `impromptu-wifi` CLI on Linux (BlueZ):
   provisioning over serial and over BLE with a button press, a failed join,
   rejoining the saved network after a restart, the factory reset, the
-  yellow, green and red LED patterns, and both transports agreeing on
-  `Provisioned`. Identify was accepted over BLE, but its white blink and the
-  cyan press flash were not observed. Not tested: losing the network and
-  reopening provisioning, ESP Web Tools and Home Assistant.
+  LED patterns, both transports agreeing on
+  `Provisioned`, losing the network (a phone hotspot switched off: back to
+  `Authorized` and advertising after three failed rejoins) and rejoining
+  when it returned, identify (white blink), and the short-press flash and
+  BLE authorization. Not tested: ESP Web Tools and Home Assistant.
