@@ -9,11 +9,14 @@
 //! builds and tests everywhere.
 
 pub mod chunks;
+pub mod queue;
 pub mod text;
+pub mod uuid;
 
 #[cfg(all(target_arch = "wasm32", web_sys_unstable_apis))]
 pub mod browser {
     //! The browser links: Web Serial, Web Bluetooth, and timers.
+    pub mod ble;
     pub mod serial;
     pub mod time;
 }
