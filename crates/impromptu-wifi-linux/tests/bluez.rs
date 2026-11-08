@@ -509,7 +509,17 @@ async fn client_provisions_through_bluez_end_to_end() {
     });
 
     let mut client = Client::new(BleClientLink::new(central));
-    assert_eq!(client.current_state().await.unwrap(), State::Authorized);
+    // The driver publishes its first state once its task runs; until then
+    // the characteristic holds its initial value.
+    let mut state = client.current_state().await.unwrap();
+    for _ in 0..200 {
+        if state == State::Authorized {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        state = client.current_state().await.unwrap();
+    }
+    assert_eq!(state, State::Authorized);
     assert_eq!(client.capabilities().await.unwrap(), CAPS);
 
     wait_until("the first advertisement is registered", || {
