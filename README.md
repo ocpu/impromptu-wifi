@@ -154,7 +154,8 @@ Everything that parses or encodes takes a `Transport`, and the driver formats sc
 ## Status
 
 Which devices, operating systems and clients have been tested is in
-[SUPPORT.md](SUPPORT.md).
+[SUPPORT.md](SUPPORT.md). Guides, references, explanations and decision
+records are indexed in [docs/](docs/README.md).
 
 | Crate | State |
 |---|---|
