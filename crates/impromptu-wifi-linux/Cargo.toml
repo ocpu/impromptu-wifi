@@ -8,7 +8,7 @@ repository.workspace = true
 homepage.workspace = true
 rust-version = "1.91"
 categories = ["network-programming", "os::linux-apis"]
-keywords = ["improv", "wifi", "provisioning", "networkmanager", "raspberry-pi"]
+keywords = ["improv-wifi", "wifi", "provisioning", "networkmanager", "raspberry-pi"]
 
 [features]
 default = ["networkmanager", "hostnamed", "serial"]

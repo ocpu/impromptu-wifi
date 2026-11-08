@@ -8,7 +8,7 @@ repository.workspace = true
 homepage.workspace = true
 rust-version = "1.91"
 categories = ["command-line-utilities", "network-programming"]
-keywords = ["improv", "wifi", "provisioning", "esphome", "cli"]
+keywords = ["improv-wifi", "wifi", "provisioning", "esphome", "cli"]
 
 [[bin]]
 name = "impromptu-wifi"

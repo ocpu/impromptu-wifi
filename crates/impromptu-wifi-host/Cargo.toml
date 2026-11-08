@@ -8,7 +8,7 @@ repository.workspace = true
 homepage.workspace = true
 rust-version = "1.91"
 categories = ["network-programming", "hardware-support"]
-keywords = ["improv", "wifi", "provisioning", "ble", "serial"]
+keywords = ["improv-wifi", "wifi", "provisioning", "ble", "serial"]
 
 [features]
 default = ["serial", "ble"]

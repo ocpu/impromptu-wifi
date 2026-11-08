@@ -8,7 +8,7 @@ repository.workspace = true
 homepage.workspace = true
 rust-version.workspace = true
 categories = ["embedded", "no-std", "network-programming", "encoding"]
-keywords = ["improv", "wifi", "provisioning", "esphome", "protocol"]
+keywords = ["improv-wifi", "wifi", "provisioning", "esphome", "protocol"]
 
 [features]
 defmt = ["dep:defmt"]

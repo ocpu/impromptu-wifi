@@ -8,7 +8,7 @@ repository.workspace = true
 homepage.workspace = true
 rust-version.workspace = true
 categories = ["embedded", "no-std", "network-programming"]
-keywords = ["improv", "wifi", "provisioning", "ble", "bluetooth"]
+keywords = ["improv-wifi", "wifi", "provisioning", "ble", "bluetooth"]
 
 [features]
 defmt = ["impromptu-wifi-core/defmt", "impromptu-wifi-client/defmt"]

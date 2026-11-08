@@ -9,7 +9,7 @@ homepage.workspace = true
 # wasm-bindgen 0.2.129 needs 1.81; kept with the host crates.
 rust-version = "1.91"
 categories = ["wasm", "network-programming"]
-keywords = ["improv", "wifi", "provisioning", "webbluetooth", "webserial"]
+keywords = ["improv-wifi", "wifi", "provisioning", "webbluetooth", "webserial"]
 publish = false
 
 [lib]
