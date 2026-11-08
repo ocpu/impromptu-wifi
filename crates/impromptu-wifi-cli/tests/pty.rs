@@ -179,7 +179,12 @@ fn cli_against_a_device_over_a_pseudo_terminal() {
         &["provision", "--ssid", "home", "--password", "nope"],
         None,
     ));
-    assert!(wrong.contains("could not join the network"), "{wrong}");
+    // The device can see the network, so the passphrase is the suspect.
+    assert!(
+        wrong.contains("could not join \"home\" (seen at")
+            && wrong.contains("Check the passphrase"),
+        "{wrong}"
+    );
 
     // The right one, piped on stdin as a script would.
     let joined = ok(&run_cli(

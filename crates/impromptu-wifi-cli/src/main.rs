@@ -9,7 +9,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, Subcommand};
 use impromptu_wifi_client::proto::ble::Capabilities;
 use impromptu_wifi_client::proto::{ErrorCode, State};
-use impromptu_wifi_client::{Client, ClientError, ClientLink};
+use impromptu_wifi_client::{Client, ClientError, ClientLink, ScannedNetwork};
 use impromptu_wifi_host::{ble, serial, BleClientLink, SerialClientLink};
 
 #[derive(Parser)]
@@ -200,7 +200,22 @@ where
             }
             eprintln!("Sending credentials for {ssid}...");
             let join = t.max(Duration::from_secs(60));
-            match timed(join, client.provision(ssid, &password)).await? {
+            let url = match tokio::time::timeout(join, client.provision(ssid, &password)).await {
+                Err(_) => bail!("no answer from the device within {}s", join.as_secs()),
+                Ok(Ok(url)) => url,
+                Ok(Err(ClientError::Device(ErrorCode::UnableToConnect))) => {
+                    // The protocol has no reason for the failure; what the
+                    // device can see narrows it down.
+                    eprintln!("Joining failed; scanning to find out why...");
+                    let seen = tokio::time::timeout(t.max(SCAN_TIME), client.scan::<64>())
+                        .await
+                        .ok()
+                        .and_then(Result::ok);
+                    return Err(join_failure(ssid, &password, seen.as_deref()));
+                }
+                Ok(Err(e)) => return Err(explain(e)),
+            };
+            match url {
                 Some(url) => println!("Connected. The device is at {url}"),
                 None => println!("Connected."),
             }
@@ -252,6 +267,67 @@ where
         }
     }
     Ok(())
+}
+
+/// How long a scan after a failed join may take.
+const SCAN_TIME: Duration = Duration::from_secs(20);
+
+/// Explain a failed join from a scan made right after it: `None` if the
+/// device couldn't scan.
+fn join_failure(ssid: &str, password: &str, scan: Option<&[ScannedNetwork]>) -> anyhow::Error {
+    let Some(networks) = scan else {
+        return anyhow!(
+            "the device could not join \"{ssid}\"\n\
+             Check the network name (it is case-sensitive) and the passphrase. \
+             Many devices, including most ESP32 chips, need a 2.4 GHz network, \
+             and some can't join WPA3-only networks."
+        );
+    };
+    let Some(network) = networks.iter().find(|n| n.ssid.as_str() == ssid) else {
+        let similar = networks
+            .iter()
+            .find(|n| n.ssid.trim().eq_ignore_ascii_case(ssid.trim()));
+        let hint = match similar {
+            Some(n) => format!(" It does see \"{}\": is that the one?", n.ssid),
+            None => String::new(),
+        };
+        return anyhow!(
+            "the device could not join \"{ssid}\": it can't see that network\n\
+             Check that the name is exact (it is case-sensitive), that the network is \
+             in range, and that it offers 2.4 GHz: many devices, including most ESP32 \
+             chips, have no 5 GHz radio.{hint}"
+        );
+    };
+    let seen = format!("seen at {} dBm", network.rssi_dbm);
+    if !network.requires_passphrase && !password.is_empty() {
+        return anyhow!(
+            "the device could not join \"{ssid}\" ({seen})\n\
+             The network is open, but a passphrase was sent. Try again with --open."
+        );
+    }
+    if network.requires_passphrase && password.is_empty() {
+        return anyhow!(
+            "the device could not join \"{ssid}\" ({seen})\n\
+             The network needs a passphrase, and none was sent."
+        );
+    }
+    let wpa3_only = network
+        .auth
+        .as_deref()
+        .is_some_and(|a| a.contains("WPA3") && !a.contains("WPA2"));
+    if wpa3_only {
+        return anyhow!(
+            "the device could not join \"{ssid}\" ({seen}, WPA3 only)\n\
+             Check the passphrase. Some devices can't join WPA3-only networks; if the \
+             passphrase is right, switch the network to WPA2/WPA3 or WPA2."
+        );
+    }
+    anyhow!(
+        "the device could not join \"{ssid}\" ({seen})\n\
+         Check the passphrase. If it is right, check the network's security mode: \
+         some devices, including ESP32 firmware built on esp-radio, can't join \
+         WPA3-only networks, so try WPA2/WPA3 or WPA2."
+    )
 }
 
 /// Run `fut` with a deadline, turning client errors into readable ones.
@@ -382,4 +458,57 @@ async fn discover(duration: Duration) -> Result<()> {
         println!("{:<18} {:>8}  {:<26} {name}", d.address, rssi, state);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn net(ssid: &str, secured: bool, auth: Option<&str>) -> ScannedNetwork {
+        ScannedNetwork {
+            ssid: ssid.try_into().unwrap(),
+            rssi_dbm: -50,
+            requires_passphrase: secured,
+            auth: auth.map(|a| a.try_into().unwrap()),
+        }
+    }
+
+    fn message(ssid: &str, password: &str, scan: Option<&[ScannedNetwork]>) -> String {
+        join_failure(ssid, password, scan).to_string()
+    }
+
+    #[test]
+    fn join_failures_are_explained_from_the_scan() {
+        let scan = [
+            net("OnePlus Nord", true, None),
+            net("Cafe", false, None),
+            net("Lab", true, Some("WPA3")),
+        ];
+        let m = message("Garage", "pw", Some(&scan));
+        assert!(
+            m.contains("can't see that network") && m.contains("2.4 GHz"),
+            "{m}"
+        );
+
+        let m = message("oneplus nord", "pw", Some(&scan));
+        assert!(m.contains("It does see \"OnePlus Nord\""), "{m}");
+
+        let m = message("OnePlus Nord", "pw", Some(&scan));
+        assert!(
+            m.contains("seen at -50 dBm") && m.contains("WPA3-only"),
+            "{m}"
+        );
+
+        let m = message("Cafe", "pw", Some(&scan));
+        assert!(m.contains("--open"), "{m}");
+
+        let m = message("OnePlus Nord", "", Some(&scan));
+        assert!(m.contains("none was sent"), "{m}");
+
+        let m = message("Lab", "pw", Some(&scan));
+        assert!(m.contains("WPA3 only"), "{m}");
+
+        let m = message("Garage", "pw", None);
+        assert!(m.contains("case-sensitive"), "{m}");
+    }
 }
