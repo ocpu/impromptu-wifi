@@ -120,6 +120,37 @@ pub const fn advertising_data(state: State, caps: Capabilities) -> [u8; ADVERTIS
     ad
 }
 
+/// A scan response payload carrying the device name, which doesn't fit in
+/// [`advertising_data`]. Written to `buf`; returns the used part.
+///
+/// The name is sent as the Complete Local Name (AD type `0x09`). A name
+/// longer than the 29 bytes that fit is cut at a character boundary and
+/// sent as the Shortened Local Name (AD type `0x08`), as the Bluetooth Core
+/// Specification Supplement (Part A, 1.2) allows.
+///
+/// ```
+/// # use impromptu_wifi_proto::ble::{scan_response_data, ADVERTISING_DATA_LEN};
+/// let mut buf = [0; ADVERTISING_DATA_LEN];
+/// assert_eq!(scan_response_data("Lamp", &mut buf), b"\x05\x09Lamp");
+/// ```
+pub fn scan_response_data<'b>(name: &str, buf: &'b mut [u8; ADVERTISING_DATA_LEN]) -> &'b [u8] {
+    const ROOM: usize = ADVERTISING_DATA_LEN - 2;
+    let (name, ad_type) = if name.len() <= ROOM {
+        (name, 0x09)
+    } else {
+        let mut end = ROOM;
+        while !name.is_char_boundary(end) {
+            end -= 1;
+        }
+        (&name[..end], 0x08)
+    };
+    // At most 29, so it fits in the length byte.
+    buf[0] = name.len() as u8 + 1;
+    buf[1] = ad_type;
+    buf[2..2 + name.len()].copy_from_slice(name.as_bytes());
+    &buf[..2 + name.len()]
+}
+
 /// Read the state and capabilities from advertised service data, so a client
 /// can list devices without connecting.
 ///
@@ -252,6 +283,22 @@ impl<const N: usize> RpcAssembler<N> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scan_response_carries_the_name_and_shortens_long_ones() {
+        let mut buf = [0; ADVERTISING_DATA_LEN];
+        assert_eq!(
+            scan_response_data("Impromptu", &mut buf),
+            b"\x0a\x09Impromptu"
+        );
+
+        let long = "Kitchen sensor with a long name ÅÄÖ";
+        let sr = scan_response_data(long, &mut buf);
+        assert_eq!(sr[1], 0x08, "shortened");
+        assert!(sr.len() <= ADVERTISING_DATA_LEN);
+        assert_eq!(usize::from(sr[0]), sr.len() - 1);
+        assert!(long.starts_with(core::str::from_utf8(&sr[2..]).unwrap()));
+    }
 
     #[test]
     fn advertising_data_is_three_ad_structures_in_31_bytes() {

@@ -62,7 +62,9 @@ use impromptu_wifi::embassy::{
     keep_online, Button, ButtonAuth, JoinEvents, KeepOnline, PersistOnJoin, Press, SharedWifi,
     WifiShare,
 };
-use impromptu_wifi::proto::ble::{advertising_data, Capabilities};
+use impromptu_wifi::proto::ble::{
+    advertising_data, scan_response_data, Capabilities, ADVERTISING_DATA_LEN,
+};
 use impromptu_wifi::proto::State;
 use impromptu_wifi::serial::SerialLink;
 use log::{info, warn};
@@ -89,6 +91,10 @@ type Joins = JoinEvents<'static, CriticalSectionRawMutex, 2>;
 /// How long a BOOT-button press authorizes BLE writes; the spec suggests
 /// about a minute.
 const AUTH_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// The Bluetooth name, sent in the scan response: the advertisement itself
+/// is full.
+const BLE_NAME: &str = "Impromptu";
 
 /// How long BOOT must be held for a factory reset.
 const RESET_HOLD: Duration = Duration::from_secs(5);
@@ -275,11 +281,13 @@ async fn ble<C: Controller>(controller: C, radio: &'static Radio, mut joins: Joi
     let mut peripheral = stack.peripheral();
     let mut runner = stack.runner();
     let server = Server::new_with_config(GapConfig::Peripheral(PeripheralConfig {
-        name: "Impromptu",
+        name: BLE_NAME,
         appearance: &appearance::UNKNOWN,
     }))
     .expect("building the GATT server");
     let mut auth = ButtonAuth::new(&SHORT_PRESS, AUTH_TIMEOUT);
+    let mut scan_buf = [0; ADVERTISING_DATA_LEN];
+    let scan_data = scan_response_data(BLE_NAME, &mut scan_buf);
 
     let session = async {
         let mut provisioned = false;
@@ -306,7 +314,7 @@ async fn ble<C: Controller>(controller: C, radio: &'static Radio, mut joins: Joi
                     &AdvertisementParameters::default(),
                     Advertisement::ConnectableScannableUndirected {
                         adv_data: &adv,
-                        scan_data: &[],
+                        scan_data,
                     },
                 )
                 .await
