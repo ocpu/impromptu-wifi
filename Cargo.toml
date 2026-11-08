@@ -19,6 +19,8 @@ impromptu-wifi-client = { path = "crates/impromptu-wifi-client", version = "0.1.
 impromptu-wifi-host = { path = "crates/impromptu-wifi-host", version = "0.1.0" }
 impromptu-wifi-serial = { path = "crates/impromptu-wifi-serial", version = "0.1.0" }
 impromptu-wifi-ble = { path = "crates/impromptu-wifi-ble", version = "0.1.0" }
+impromptu-wifi-embassy = { path = "crates/impromptu-wifi-embassy", version = "0.1.0" }
+impromptu-wifi-linux = { path = "crates/impromptu-wifi-linux", version = "0.1.0" }
 
 heapless = "0.9"
 # The version current embassy HALs implement (embassy-nrf/rp/stm32/usb;

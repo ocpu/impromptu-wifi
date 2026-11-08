@@ -1,0 +1,95 @@
+[package]
+name = "impromptu-wifi"
+description = "Improv Wi-Fi provisioning for Rust: one crate whose features select the device, client, transport and platform layers (no_std)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+# Without features. `embassy*`, `esp`, `host*` and `linux*` need 1.91.
+rust-version.workspace = true
+categories = ["embedded", "no-std", "network-programming"]
+keywords = ["improv", "wifi", "provisioning", "esphome", "ble"]
+readme = "../../README.md"
+
+[features]
+default = []
+
+## Device role: state machine and async `Driver` (module `device`).
+device = ["dep:impromptu-wifi-core"]
+## Client role: session machine and async `Client` (module `client`).
+client = ["dep:impromptu-wifi-client"]
+## Serial transport, both roles (module `serial`).
+serial = ["dep:impromptu-wifi-serial", "device", "client"]
+## Bluetooth LE transport over GATT traits, both roles (module `ble`).
+ble = ["dep:impromptu-wifi-ble", "device", "client"]
+
+## Embassy glue: `ButtonAuth` (module `embassy`).
+embassy = ["dep:impromptu-wifi-embassy", "serial", "ble"]
+## Device side over trouble-host (`embassy::trouble`).
+embassy-trouble = ["embassy", "impromptu-wifi-embassy/trouble"]
+## Client side over trouble-host (`embassy::trouble`).
+embassy-trouble-central = ["embassy", "impromptu-wifi-embassy/trouble-central"]
+## Serial over USB CDC-ACM with embassy-usb (`embassy::usb`).
+embassy-usb = ["embassy", "impromptu-wifi-embassy/usb"]
+## Redirect URLs and connectivity from an embassy-net stack (`embassy::net`).
+embassy-net = ["embassy", "impromptu-wifi-embassy/embassy-net"]
+## ESP32 Wi-Fi backend over esp-radio (`embassy::esp`). The application
+## also enables its chip's esp-radio feature, for example `esp-radio/esp32c6`.
+esp = ["embassy-net", "impromptu-wifi-embassy/esp"]
+
+## Client side on desktop operating systems, tokio-based (module `host`).
+host = ["dep:impromptu-wifi-host", "client", "serial", "ble"]
+## Serial ports through tokio-serial (`host::serial`).
+host-serial = ["host", "impromptu-wifi-host/serial"]
+## Bluetooth LE through btleplug (`host::ble`). Needs libdbus on Linux.
+host-ble = ["host", "impromptu-wifi-host/ble"]
+
+## Device side on Linux, tokio-based (module `linux`).
+linux = ["dep:impromptu-wifi-linux", "device", "serial", "ble"]
+## Wi-Fi through NetworkManager (`linux::nm`).
+linux-networkmanager = ["linux", "impromptu-wifi-linux/networkmanager"]
+## Hostname and device name through systemd-hostnamed (`linux::hostname`).
+linux-hostnamed = ["linux", "impromptu-wifi-linux/hostnamed"]
+## Serial ports through tokio-serial (`linux::serial`).
+linux-serial = ["linux", "impromptu-wifi-linux/serial"]
+## Bluetooth LE peripheral through BlueZ (`linux::bluez`). Needs libdbus.
+linux-bluez = ["linux", "impromptu-wifi-linux/bluez"]
+
+## defmt formatting for every enabled no_std layer.
+defmt = [
+    "impromptu-wifi-proto/defmt",
+    "impromptu-wifi-traits/defmt",
+    "impromptu-wifi-core?/defmt",
+    "impromptu-wifi-client?/defmt",
+    "impromptu-wifi-serial?/defmt",
+    "impromptu-wifi-ble?/defmt",
+    "impromptu-wifi-embassy?/defmt",
+]
+
+[dependencies]
+impromptu-wifi-proto.workspace = true
+impromptu-wifi-traits.workspace = true
+impromptu-wifi-core = { workspace = true, optional = true }
+impromptu-wifi-client = { workspace = true, optional = true }
+impromptu-wifi-serial = { workspace = true, optional = true }
+impromptu-wifi-ble = { workspace = true, optional = true }
+impromptu-wifi-embassy = { workspace = true, optional = true }
+# Not inherited from the workspace: an inherited dependency cannot turn
+# default features off before edition 2024, and these defaults pull in
+# libdbus. Keep the versions in step with [workspace.dependencies].
+impromptu-wifi-host = { path = "../impromptu-wifi-host", version = "0.1.0", optional = true, default-features = false }
+impromptu-wifi-linux = { path = "../impromptu-wifi-linux", version = "0.1.0", optional = true, default-features = false }
+
+[package.metadata.docs.rs]
+# Every feature except `esp`, which needs a chip feature from the application.
+features = [
+    "defmt",
+    "embassy-trouble", "embassy-trouble-central", "embassy-usb", "embassy-net",
+    "host-serial", "host-ble",
+    "linux-networkmanager", "linux-hostnamed", "linux-serial", "linux-bluez",
+]
+rustdoc-args = ["--cfg", "docsrs"]
+
+[[test]]
+name = "paths"
+required-features = ["serial", "ble"]

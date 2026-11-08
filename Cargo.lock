@@ -1328,6 +1328,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39"
 
 [[package]]
+name = "impromptu-wifi"
+version = "0.1.0"
+dependencies = [
+ "impromptu-wifi-ble",
+ "impromptu-wifi-client",
+ "impromptu-wifi-core",
+ "impromptu-wifi-embassy",
+ "impromptu-wifi-host",
+ "impromptu-wifi-linux",
+ "impromptu-wifi-proto",
+ "impromptu-wifi-serial",
+ "impromptu-wifi-traits",
+]
+
+[[package]]
 name = "impromptu-wifi-ble"
 version = "0.1.0"
 dependencies = [

@@ -2,33 +2,56 @@
 
 A layered Rust implementation of the [Improv Wi-Fi](https://www.improv-wifi.com) provisioning protocol: `no_std` and allocation-free at the bottom, increasingly concrete toward the top.
 
-```
-impromptu-wifi-proto      wire format, shared by both roles                          no_std, no deps
-impromptu-wifi-traits     backend traits a device implements                        no_std, heapless only
-     │
-     ├── impromptu-wifi-core      device: state machine (sans-IO) + async Driver     no_std
-     └── impromptu-wifi-client    client: session machine (sans-IO) + async Client   no_std
-            │
-impromptu-wifi-serial     SerialLink (device) + SerialClientLink (client)           no_std
-impromptu-wifi-ble        BleLink (device) + BleClientLink (client) over GATT traits no_std
-     │
-impromptu-wifi-embassy    ButtonAuth, USB CDC-ACM, trouble-host GATT (both roles),  no_std
-                  embassy-net, ESP32 Wi-Fi backend (esp-radio)
-impromptu-wifi-host       client side on desktops: tokio-serial, btleplug           std, tokio
-impromptu-wifi-cli        the `impromptu-wifi` command-line tool                            binary
-impromptu-wifi-linux      Linux device side: NetworkManager, hostnamed, serial,     std, tokio
-                  BlueZ; the `impromptu-wifi-device` daemon
+Depend on the `impromptu-wifi` crate and enable the features you need. Each feature makes one layer available as a module:
+
+```toml
+[dependencies]
+# Firmware: serial and BLE device side, button authorization, trouble-host.
+impromptu-wifi = { version = "0.1", features = ["embassy-trouble", "embassy-usb"] }
 ```
 
-Each layer depends only on the ones above it. Pick the highest layer that fits your platform; drop down when it doesn't. A platform crate that only implements backends needs nothing but `impromptu-wifi-traits`.
+| Feature | Module | Contents |
+|---|---|---|
+| (always) | `proto`, `traits` | Wire format; backend traits a device implements |
+| `device` | `device` | State machine (sans-IO) and async `Driver` |
+| `client` | `client` | Session machine (sans-IO) and async `Client` |
+| `serial` | `serial` | `SerialLink` (device), `SerialClientLink` (client) |
+| `ble` | `ble` | `BleLink` (device), `BleClientLink` (client) over GATT traits |
+| `embassy` | `embassy` | `ButtonAuth`; plus `embassy-trouble`, `embassy-trouble-central`, `embassy-usb`, `embassy-net`, `esp` |
+| `host` | `host` | Desktop client side, tokio; plus `host-serial`, `host-ble` |
+| `linux` | `linux` | Linux device side, tokio; plus `linux-networkmanager`, `linux-hostnamed`, `linux-serial`, `linux-bluez` |
+| `defmt` | | `defmt::Format` for every enabled `no_std` layer |
+
+Features enable the layers they build on. No feature is on by default. `host-ble` and `linux-bluez` need `libdbus` at build time on Linux.
+
+Each module is also a crate of its own:
+
+```
+impromptu-wifi-proto       wire format, shared by both roles               no_std, no deps
+impromptu-wifi-traits      backend traits a device implements              no_std, heapless only
+  ├── impromptu-wifi-core    device: state machine + async Driver          no_std
+  └── impromptu-wifi-client  client: session machine + async Client        no_std
+impromptu-wifi-serial      SerialLink + SerialClientLink                   no_std
+impromptu-wifi-ble         BleLink + BleClientLink over GATT traits        no_std
+impromptu-wifi-embassy     ButtonAuth, USB CDC-ACM, trouble-host GATT,     no_std
+                           embassy-net, ESP32 Wi-Fi backend (esp-radio)
+impromptu-wifi-host        client side on desktops: tokio-serial, btleplug std, tokio
+impromptu-wifi-linux       Linux device side: NetworkManager, hostnamed,   std, tokio
+                           serial, BlueZ; the impromptu-wifi-device daemon
+impromptu-wifi-cli         the impromptu-wifi command-line tool            binary
+impromptu-wifi             the features above, re-exported as modules      no_std
+```
+
+Each layer depends only on the ones above it. A platform crate that only implements backends needs nothing but `impromptu-wifi-traits`.
 
 ## Using it
 
 A device provides two objects. The Wi-Fi object implements `WifiConnect` (required) plus `WifiScanner` and `NetworkStatus`. The device object implements `DeviceInfoSource` (required) plus `Identify` and `HostnameProvider`. Optional traits you don't support are declared with one line:
 
 ```rust
-use impromptu_wifi_core::{unsupported, Driver, NoAuth};
-use impromptu_wifi_serial::SerialLink;
+// features = ["serial"]
+use impromptu_wifi::device::{unsupported, Driver, NoAuth};
+use impromptu_wifi::serial::SerialLink;
 
 impl WifiConnect for MyWifi { /* async fn connect(...) */ }
 impl WifiScanner for MyWifi { /* async fn scan(...) */ }
@@ -45,7 +68,7 @@ driver.run(&mut NoAuth).await?;
 Each optional trait has a `SUPPORTED` constant, so the driver knows at compile time which commands to answer, and BLE capabilities are a constant too:
 
 ```rust
-const CAPS: Capabilities = impromptu_wifi_ble::capabilities::<MyWifi, MyDevice>();
+const CAPS: Capabilities = impromptu_wifi::ble::capabilities::<MyWifi, MyDevice>();
 let link = BleLink::new(gatt, CAPS);
 ```
 
@@ -148,7 +171,7 @@ cargo test --workspace
 
 Three kinds of end-to-end tests run against the full driver: scripted byte sequences (serial and BLE, including 20-byte BLE writes), and loopback conformance tests where the real `Client` talks to the real `Driver`: over an in-memory serial line with log noise (`impromptu-wifi-serial/tests/loopback.rs`), over an in-memory GATT connection with button authorization and different MTUs (`impromptu-wifi-ble/tests/loopback.rs`), and through the real `impromptu-wifi` binary over a kernel pseudo-terminal (`impromptu-wifi-cli/tests/pty.rs`). The Linux backends run over a private `dbus-daemon` against stand-in NetworkManager and hostnamed services written from their public D-Bus documentation (`impromptu-wifi-linux/tests/dbus.rs`, needs `dbus-daemon` installed); that checks they follow the documented APIs, not that the real services behave identically. Because both ends share `impromptu-wifi-proto`, also test against ESPHome firmware and the official JS SDK; a shared codec can't catch a shared misreading of the spec. The proto crate is a good fuzzing target (`Framer::feed`, `RpcAssembler::push`, `Command::parse`).
 
-MSRV is 1.87 (set by `heapless` 0.9), except `impromptu-wifi-embassy`, `impromptu-wifi-host`, `impromptu-wifi-cli` and `impromptu-wifi-linux` at 1.91 (set by `smoltcp` 0.13 and the host dependencies). `embedded-io-async` is 0.7, the version current embassy HALs implement.
+MSRV is 1.87 (set by `heapless` 0.9), including `impromptu-wifi` without the `embassy*`, `esp`, `host*` and `linux*` features, except `impromptu-wifi-embassy`, `impromptu-wifi-host`, `impromptu-wifi-cli` and `impromptu-wifi-linux` at 1.91 (set by `smoltcp` 0.13 and the host dependencies). `embedded-io-async` is 0.7, the version current embassy HALs implement.
 
 CI (`.github/workflows/ci.yml`) runs `rustfmt`, `clippy -D warnings`, the tests and rustdoc on Linux; builds the `no_std` crates for `thumbv6m-none-eabi`, `thumbv7em-none-eabihf` and `riscv32imac-unknown-none-elf`; builds `ci/esp32c6-check`; checks both MSRVs; runs `cargo deny check` (`deny.toml`); and runs `scripts/check-dep-age.py`, which fails if any locked crates.io version was published less than 14 days earlier. The `trouble` and `trouble-central` features do not build for `thumbv6m-none-eabi` (`static_cell` 2.1.1, through `trouble-host`, uses atomic compare-and-swap, which that target lacks). Building `impromptu-wifi-host`, `impromptu-wifi-cli` or `impromptu-wifi-linux` with `bluez` needs `libdbus-1-dev libudev-dev pkg-config` (Debian/Ubuntu names).
 

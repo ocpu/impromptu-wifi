@@ -22,13 +22,14 @@ env:
   # Pinned so new clippy lints arrive through a reviewed change, not a
   # random red build. Bump together with fixes for any new warnings.
   RUST_STABLE: "1.99.1"
-  # Host-buildable features. `impromptu-wifi-embassy/esp` needs a chip feature and is
+  # Host-buildable features. `esp` needs a chip feature and is
   # covered by the esp32c6 job; `defmt` is covered by the no_std jobs.
   HOST_FEATURES: >-
-    impromptu-wifi-embassy/trouble,impromptu-wifi-embassy/trouble-central,impromptu-wifi-embassy/usb,impromptu-wifi-embassy/embassy-net,impromptu-wifi-linux/daemon
-  # The crates that claim `no_std` without impromptu-wifi-embassy.
+    impromptu-wifi-embassy/trouble,impromptu-wifi-embassy/trouble-central,impromptu-wifi-embassy/usb,impromptu-wifi-embassy/embassy-net,impromptu-wifi-linux/daemon,impromptu-wifi/embassy-trouble,impromptu-wifi/embassy-trouble-central,impromptu-wifi/embassy-usb,impromptu-wifi/embassy-net,impromptu-wifi/host-serial,impromptu-wifi/host-ble,impromptu-wifi/linux-networkmanager,impromptu-wifi/linux-hostnamed,impromptu-wifi/linux-serial,impromptu-wifi/linux-bluez
+  # The crates that claim `no_std` without impromptu-wifi-embassy. The
+  # facade, impromptu-wifi, builds here with no features.
   NO_STD_CRATES: >-
-    -p impromptu-wifi-proto -p impromptu-wifi-traits -p impromptu-wifi-core -p impromptu-wifi-client -p impromptu-wifi-serial -p impromptu-wifi-ble
+    -p impromptu-wifi -p impromptu-wifi-proto -p impromptu-wifi-traits -p impromptu-wifi-core -p impromptu-wifi-client -p impromptu-wifi-serial -p impromptu-wifi-ble
 
 jobs:
   fmt:
@@ -83,12 +84,15 @@ jobs:
           # static_cell (through trouble-host) needs.
           - target: thumbv6m-none-eabi
             embassy_features: usb,embassy-net,defmt
+            facade_features: serial,ble,embassy-usb,embassy-net,defmt
           # Cortex-M4F/M7F (nRF52, STM32F4).
           - target: thumbv7em-none-eabihf
             embassy_features: trouble,trouble-central,usb,embassy-net,defmt
+            facade_features: serial,ble,embassy-trouble,embassy-trouble-central,embassy-usb,embassy-net,defmt
           # ESP32-C3/C6 and other RV32IMAC chips.
           - target: riscv32imac-unknown-none-elf
             embassy_features: trouble,trouble-central,usb,embassy-net,defmt
+            facade_features: serial,ble,embassy-trouble,embassy-trouble-central,embassy-usb,embassy-net,defmt
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master 2026-10-16
@@ -104,6 +108,8 @@ jobs:
         run: cargo build --locked $NO_STD_CRATES --features impromptu-wifi-ble/defmt,impromptu-wifi-serial/defmt --target ${{ matrix.target }}
       - name: impromptu-wifi-embassy
         run: cargo build --locked -p impromptu-wifi-embassy --features ${{ matrix.embassy_features }} --target ${{ matrix.target }}
+      - name: impromptu-wifi (facade)
+        run: cargo build --locked -p impromptu-wifi --features ${{ matrix.facade_features }} --target ${{ matrix.target }}
 
   esp32c6:
     name: ESP32-C6 backend
@@ -130,12 +136,13 @@ jobs:
           # Workspace rust-version, set by heapless 0.9.
           - rust: "1.87"
             args: >-
-              -p impromptu-wifi-proto -p impromptu-wifi-traits -p impromptu-wifi-core -p impromptu-wifi-client -p impromptu-wifi-serial -p impromptu-wifi-ble
+              -p impromptu-wifi -p impromptu-wifi-proto -p impromptu-wifi-traits -p impromptu-wifi-core -p impromptu-wifi-client -p impromptu-wifi-serial -p impromptu-wifi-ble
+              --features impromptu-wifi/serial,impromptu-wifi/ble
           # impromptu-wifi-embassy (smoltcp 0.13) and the host crates.
           - rust: "1.91"
             args: >-
-              -p impromptu-wifi-embassy -p impromptu-wifi-host -p impromptu-wifi-cli -p impromptu-wifi-linux
-              --features impromptu-wifi-embassy/trouble,impromptu-wifi-embassy/trouble-central,impromptu-wifi-embassy/usb,impromptu-wifi-embassy/embassy-net,impromptu-wifi-linux/daemon
+              -p impromptu-wifi -p impromptu-wifi-embassy -p impromptu-wifi-host -p impromptu-wifi-cli -p impromptu-wifi-linux
+              --features impromptu-wifi-embassy/trouble,impromptu-wifi-embassy/trouble-central,impromptu-wifi-embassy/usb,impromptu-wifi-embassy/embassy-net,impromptu-wifi-linux/daemon,impromptu-wifi/embassy-trouble,impromptu-wifi/embassy-trouble-central,impromptu-wifi/embassy-usb,impromptu-wifi/embassy-net,impromptu-wifi/host-serial,impromptu-wifi/host-ble,impromptu-wifi/linux-networkmanager,impromptu-wifi/linux-hostnamed,impromptu-wifi/linux-serial,impromptu-wifi/linux-bluez
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libdbus-1-dev libudev-dev pkg-config

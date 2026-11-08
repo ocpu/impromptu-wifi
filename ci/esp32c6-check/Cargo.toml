@@ -1,5 +1,5 @@
-# Compile check for the ESP32 backend of impromptu-wifi-embassy (features `esp` and
-# `trouble`), the way a firmware crate depends on it. Not published and not
+# Compile check for the ESP32 backend (impromptu-wifi features `esp` and
+# `embassy-trouble`), the way a firmware crate depends on it. Not published and not
 # a workspace member: it selects a chip, which a library crate must not do.
 [package]
 name = "esp32c6-check"
@@ -10,6 +10,6 @@ publish = false
 [workspace]
 
 [dependencies]
-impromptu-wifi-embassy = { path = "../../crates/impromptu-wifi-embassy", features = ["esp", "trouble"] }
+impromptu-wifi = { path = "../../crates/impromptu-wifi", features = ["esp", "embassy-trouble"] }
 esp-hal = { version = "1.2.2", features = ["esp32c6", "unstable"] }
 esp-radio = { version = "=1.0.0-beta.1", features = ["esp32c6"] }
