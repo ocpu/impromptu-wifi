@@ -74,6 +74,8 @@ pub enum BluezError {
     NoAdapter,
     /// The GATT application was removed underneath us.
     Closed,
+    /// The adapter is switched off by rfkill, so BlueZ can't power it.
+    Blocked,
 }
 
 impl fmt::Display for BluezError {
@@ -82,6 +84,11 @@ impl fmt::Display for BluezError {
             Self::Dbus(e) => write!(f, "BlueZ: {e}"),
             Self::NoAdapter => f.write_str("no Bluetooth LE adapter found"),
             Self::Closed => f.write_str("the Improv Wi-Fi GATT service was unregistered"),
+            Self::Blocked => f.write_str(
+                "the Bluetooth adapter is blocked by rfkill; unblock it with \
+                 `rfkill unblock bluetooth`, or by writing 0 to \
+                 /sys/class/rfkill/<n>/soft for the bluetooth entry",
+            ),
         }
     }
 }
@@ -474,17 +481,25 @@ impl BluezGatt {
         static NEXT: AtomicU32 = AtomicU32::new(0);
         let paths = Paths::new(NEXT.fetch_add(1, Ordering::Relaxed));
 
-        PropertiesProxy::builder(bus)
+        let props = PropertiesProxy::builder(bus)
             .destination(BLUEZ_SERVICE)?
             .path(adapter.path().clone())?
             .build()
-            .await?
-            .set(
-                ADAPTER_IFACE.try_into().expect("valid interface name"),
-                "Powered",
-                Value::from(true),
-            )
             .await?;
+        let iface = || ADAPTER_IFACE.try_into().expect("valid interface name");
+        if let Err(e) = props.set(iface(), "Powered", Value::from(true)).await {
+            // BlueZ 5.66 and later say why: `PowerState` is `off-blocked`
+            // while rfkill blocks the adapter. Its own error is just "Failed".
+            let state = props.get(iface(), "PowerState").await.ok();
+            let blocked = state
+                .and_then(|v| String::try_from(v).ok())
+                .is_some_and(|s| s == "off-blocked");
+            return Err(if blocked {
+                BluezError::Blocked
+            } else {
+                e.into()
+            });
+        }
 
         let values = Arc::new(Mutex::new(Values::default()));
         let (tx, writes) = mpsc::channel::<Vec<u8>>(16);
