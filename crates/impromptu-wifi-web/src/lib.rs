@@ -10,6 +10,7 @@
 
 pub mod chunks;
 pub mod queue;
+pub mod slot;
 pub mod text;
 pub mod uuid;
 
@@ -17,6 +18,7 @@ pub mod uuid;
 pub mod browser {
     //! The browser links: Web Serial, Web Bluetooth, and timers.
     pub mod ble;
+    pub mod device;
     pub mod serial;
     pub mod time;
 }
@@ -47,5 +49,44 @@ impl embedded_io_async::Error for WebError {
             Self::Disconnected => embedded_io_async::ErrorKind::BrokenPipe,
             Self::Js(_) => embedded_io_async::ErrorKind::Other,
         }
+    }
+}
+
+/// Whether a link error means the device is gone, so the page should
+/// return to its connect buttons.
+pub trait LinkFailure {
+    /// The connection ended.
+    fn is_disconnect(&self) -> bool;
+}
+
+impl LinkFailure for WebError {
+    fn is_disconnect(&self) -> bool {
+        matches!(self, Self::Disconnected)
+    }
+}
+
+impl LinkFailure for impromptu_wifi_serial::SerialError<WebError> {
+    fn is_disconnect(&self) -> bool {
+        use impromptu_wifi_serial::SerialError;
+        match self {
+            SerialError::Io(e) => e.is_disconnect(),
+            SerialError::Eof => true,
+            SerialError::Oversize => false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use impromptu_wifi_serial::SerialError;
+
+    #[test]
+    fn disconnects_are_recognised() {
+        assert!(WebError::Disconnected.is_disconnect());
+        assert!(!WebError::Js("x".into()).is_disconnect());
+        assert!(SerialError::Io(WebError::Disconnected).is_disconnect());
+        assert!(SerialError::<WebError>::Eof.is_disconnect());
+        assert!(!SerialError::<WebError>::Oversize.is_disconnect());
     }
 }
