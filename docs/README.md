@@ -16,6 +16,7 @@ entry point; this page lists the rest by what the reader needs.
 
 | Document | Covers |
 |---|---|
+| [Provision a device from a browser](how-to/provision-from-a-browser.md) | The browser client on the project site: which browsers, connecting over USB serial or Bluetooth LE, the commands |
 | [Troubleshoot Bluetooth LE provisioning](how-to/troubleshoot-bluetooth.md) | Devices not found, dropped connections, pairing prompts, stale caches |
 
 ## Reference

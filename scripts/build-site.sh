@@ -2,7 +2,7 @@
 # Build the GitHub Pages site into OUT (default: target/site).
 #
 # Needs: the wasm32-unknown-unknown target, wasm-bindgen-cli at the version
-# of the wasm-bindgen crate in Cargo.lock.
+# of the wasm-bindgen crate in Cargo.lock, mdBook 0.5.4 and Python 3.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -20,3 +20,10 @@ wasm-bindgen --target web --no-typescript --out-dir "$out/pkg" \
   target/wasm32-unknown-unknown/release/impromptu_wifi_web.wasm
 
 cp site/index.html site/style.css site/app.js "$out/"
+
+# Documentation: stage docs/ for mdBook (failing on broken links), then build.
+stage="$root/target/site-docs"
+rm -rf "$stage"
+python3 -I scripts/stage-docs.py --check "$stage/src"
+cp site/book.toml "$stage/"
+mdbook build --dest-dir "$out/docs" "$stage"

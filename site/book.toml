@@ -1,0 +1,23 @@
+# mdBook configuration for the documentation on the project site.
+# scripts/build-site.sh copies this file next to the staged sources in src/
+# (scripts/stage-docs.py) and builds into <site>/docs.
+[book]
+title = "impromptu-wifi documentation"
+language = "en"
+src = "src"
+
+[build]
+create-missing = false
+# Keep README.md pages as README.html, so the links that stage-docs.py
+# writes stay valid.
+use-default-preprocessors = false
+
+[preprocessor.links]
+
+[output.html]
+git-repository-url = "https://github.com/ocpu/impromptu-wifi"
+site-url = "/impromptu-wifi/docs/"
+no-section-label = true
+
+[output.html.search]
+enable = true

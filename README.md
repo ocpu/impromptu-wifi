@@ -2,6 +2,8 @@
 
 A layered Rust implementation of the [Improv Wi-Fi](https://www.improv-wifi.com) provisioning protocol: `no_std` and allocation-free at the bottom, increasingly concrete toward the top.
 
+The project site, <https://ocpu.github.io/impromptu-wifi/>, has the documentation and a browser client that provisions devices over Web Serial and Web Bluetooth. Improv Wi-Fi itself is a standard by ESPHome and Home Assistant; this project is an independent implementation and is not affiliated with it.
+
 Depend on the `impromptu-wifi` crate and enable the features you need. Each feature makes one layer available as a module:
 
 ```toml
