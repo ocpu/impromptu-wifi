@@ -152,13 +152,16 @@ EOF
                     'wireplumber.profiles = {' '  main = {' '    monitor.bluez-midi = disabled' '  }' '}' >"$conf"
                 restart_wireplumber=1
             fi
-        else
+        elif ls /usr/share/wireplumber/bluetooth.lua.d/*midi* >/dev/null 2>&1; then
+            # WirePlumber 0.4 releases with a BLE-MIDI monitor. 0.4.13
+            # (Raspberry Pi OS 12) has none, and nothing to turn off. The
+            # check keeps a missing table from stopping WirePlumber.
             conf=/etc/wireplumber/bluetooth.lua.d/90-impromptu-wifi-no-ble-midi.lua
             if [ ! -f "$conf" ]; then
                 say "turning off WirePlumber's BLE-MIDI"
                 mkdir -p "$(dirname "$conf")"
                 printf '%s\n' '-- impromptu-wifi-device: no BLE-MIDI on a provisioning device.' \
-                    'bluez_midi_monitor.enabled = false' >"$conf"
+                    'if bluez_midi_monitor then bluez_midi_monitor.enabled = false end' >"$conf"
                 restart_wireplumber=1
             fi
         fi
