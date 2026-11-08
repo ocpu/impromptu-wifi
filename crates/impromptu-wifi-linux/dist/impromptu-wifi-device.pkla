@@ -1,0 +1,17 @@
+# Lets the `impromptu-wifi` service user configure Wi-Fi and the hostname, and
+# nothing else. The same grant as 50-impromptu-wifi-device.rules, for polkit
+# 0.105 (Debian 11, Raspberry Pi OS 11 and older), which has no JavaScript
+# rules. Install to /etc/polkit-1/localauthority/50-local.d/.
+[impromptu-wifi-device: NetworkManager]
+Identity=unix-user:impromptu-wifi
+Action=org.freedesktop.NetworkManager.*
+ResultAny=yes
+ResultInactive=yes
+ResultActive=yes
+
+[impromptu-wifi-device: hostname]
+Identity=unix-user:impromptu-wifi
+Action=org.freedesktop.hostname1.set-static-hostname;org.freedesktop.hostname1.set-machine-info
+ResultAny=yes
+ResultInactive=yes
+ResultActive=yes

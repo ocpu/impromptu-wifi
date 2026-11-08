@@ -2,8 +2,9 @@
 
 `impromptu-wifi-device` serves Improv on a serial port, over Bluetooth LE, or
 both, with NetworkManager for Wi-Fi and systemd-hostnamed for the hostname
-and device name. Building needs `libudev-dev` and `pkg-config` (for the
-serial port); Bluetooth goes through BlueZ's D-Bus API and needs no C library.
+and device name. It needs no C library: serial ports and BlueZ's D-Bus API
+are used from Rust. For a Raspberry Pi, `examples/raspberry-pi` has static
+builds and a `setup.sh` that does the steps below.
 
 ```sh
 cargo build --release -p impromptu-wifi-linux --features daemon
@@ -12,8 +13,10 @@ sudo install target/release/impromptu-wifi-device /usr/local/bin/
 # A dedicated user that may use serial ports and Bluetooth, and nothing else.
 sudo useradd --system --no-create-home --groups dialout,bluetooth impromptu-wifi
 
-# Allow it to change Wi-Fi and the hostname (polkit 0.106+).
+# Allow it to change Wi-Fi and the hostname. polkit 0.106 and later:
 sudo install -m 644 crates/impromptu-wifi-linux/dist/50-impromptu-wifi-device.rules /etc/polkit-1/rules.d/
+# polkit 0.105 (Debian 11 and older; `pkaction --version` tells) instead:
+# sudo install -m 644 crates/impromptu-wifi-linux/dist/impromptu-wifi-device.pkla /etc/polkit-1/localauthority/50-local.d/
 
 sudo install -m 644 crates/impromptu-wifi-linux/dist/impromptu-wifi-device.service /etc/systemd/system/
 sudo systemctl daemon-reload
@@ -28,10 +31,11 @@ the UART it's usually `/dev/serial0`, with the serial console disabled.
 Then, from another machine: `impromptu-wifi --port /dev/ttyACM0 provision --ssid …`,
 or over Bluetooth: `impromptu-wifi discover`, then `impromptu-wifi --ble <name> provision --ssid …`.
 
-Bluetooth is offered only while the machine is offline and stops once it's
-provisioned, as the Improv spec describes: there's no button to authorize
-with, so this keeps anyone in radio range from re-pointing a working
-machine. If your distribution's BlueZ policy doesn't grant the `bluetooth`
+Bluetooth is offered only while NetworkManager reports the machine offline,
+and stops as soon as it is online, whether through Improv Wi-Fi or any other
+way (a saved network rejoined at boot, a cable): there's no button to
+authorize with, so this keeps anyone in radio range from re-pointing a
+working machine. Interfaces NetworkManager doesn't manage don't count. If your distribution's BlueZ policy doesn't grant the `bluetooth`
 group access, the service needs to run as root for `--ble`.
 
 What the service does to NetworkManager: a successful join creates a saved

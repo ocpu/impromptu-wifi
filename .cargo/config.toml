@@ -1,0 +1,11 @@
+# Raspberry Pi builds of impromptu-wifi-device (see examples/raspberry-pi):
+# static musl binaries, linked with the rust-lld that rustup ships, so no
+# cross toolchain or target C library is needed.
+[target.arm-unknown-linux-musleabihf]
+linker = "rust-lld"
+
+[target.armv7-unknown-linux-musleabihf]
+linker = "rust-lld"
+
+[target.aarch64-unknown-linux-musl]
+linker = "rust-lld"

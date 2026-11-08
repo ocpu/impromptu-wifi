@@ -22,9 +22,9 @@ impromptu-wifi = { version = "0.1", features = ["embassy-trouble", "embassy-usb"
 | `linux` | `linux` | Linux device side, tokio; plus `linux-networkmanager`, `linux-hostnamed`, `linux-serial`, `linux-bluez` |
 | `defmt` | | `defmt::Format` for every enabled `no_std` layer |
 
-[`examples/esp32c6`](examples/esp32c6) is a complete firmware that offers Improv Wi-Fi over USB serial and Bluetooth LE at the same time. [`examples/esp32s3`](examples/esp32s3) is the same firmware for the ESP32-S3 (Xtensa, built with Espressif's `esp` toolchain).
+[`examples/esp32c6`](examples/esp32c6) is a complete firmware that offers Improv Wi-Fi over USB serial and Bluetooth LE at the same time. [`examples/esp32s3`](examples/esp32s3) is the same firmware for the ESP32-S3 (Xtensa, built with Espressif's `esp` toolchain). [`examples/raspberry-pi`](examples/raspberry-pi) makes a Raspberry Pi (Zero W to Pi 5) provisionable with the Linux daemon, with static cross-builds and a setup script.
 
-Features enable the layers they build on. No feature is on by default. On Linux, `host-ble` and `linux-bluez` talk to BlueZ over D-Bus through zbus and need no C library; `host-serial` and `linux-serial` need `libudev`.
+Features enable the layers they build on. No feature is on by default. On Linux, `host-ble` and `linux-bluez` talk to BlueZ over D-Bus through zbus, and `host-serial` and `linux-serial` use `serialport` without its `libudev` feature; none of them needs a C library.
 
 Each module is also a crate of its own:
 
@@ -103,7 +103,7 @@ impromptu-wifi --port /dev/ttyUSB0 provision --ssid home    # prompts for the pa
 impromptu-wifi --ble kitchen provision --ssid home          # waits for a button press if needed
 ```
 
-Opening a serial port leaves DTR and RTS alone, so ESP32 boards with the usual auto-reset wiring aren't reset by connecting; `--reset` resets one on purpose. On Linux, BLE needs BlueZ running, and building needs the `libudev` development package for serial ports (`libudev-dev pkg-config` on Debian/Ubuntu).
+Opening a serial port leaves DTR and RTS alone, so ESP32 boards with the usual auto-reset wiring aren't reset by connecting; `--reset` resets one on purpose. On Linux, BLE needs BlueZ running; building needs no C library.
 
 ### A Linux machine as the device
 
@@ -176,7 +176,7 @@ Three kinds of end-to-end tests run against the full driver: scripted byte seque
 
 MSRV is 1.87 (set by `heapless` 0.9), including `impromptu-wifi` without the `embassy*`, `esp`, `host*` and `linux*` features, except `impromptu-wifi-embassy`, `impromptu-wifi-host`, `impromptu-wifi-cli` and `impromptu-wifi-linux` at 1.91 (set by `smoltcp` 0.13 and the host dependencies). `embedded-io-async` is 0.7, the version current embassy HALs implement.
 
-CI (`.github/workflows/ci.yml`) runs `rustfmt`, `clippy -D warnings`, the tests and rustdoc on Linux; builds the `no_std` crates for `thumbv6m-none-eabi`, `thumbv7em-none-eabihf` and `riscv32imac-unknown-none-elf`; builds and lints the `examples/esp32c6` and `examples/esp32s3` firmware (the latter with Espressif's Xtensa toolchain, through `esp-rs/xtensa-toolchain`); checks both MSRVs; runs `cargo deny check` (`deny.toml`); and runs `scripts/check-dep-age.py`, which fails if any locked crates.io version was published less than 14 days earlier. The `trouble` and `trouble-central` features do not build for `thumbv6m-none-eabi` (`static_cell` 2.1.1, through `trouble-host`, uses atomic compare-and-swap, which that target lacks). On Linux, building the serial support in `impromptu-wifi-host`, `impromptu-wifi-cli` and `impromptu-wifi-linux` needs `libudev-dev pkg-config` (Debian/Ubuntu names); nothing needs `libdbus`.
+CI (`.github/workflows/ci.yml`) runs `rustfmt`, `clippy -D warnings`, the tests and rustdoc on Linux; builds the `no_std` crates for `thumbv6m-none-eabi`, `thumbv7em-none-eabihf` and `riscv32imac-unknown-none-elf`; builds `impromptu-wifi-device` statically for the three Raspberry Pi targets; builds and lints the `examples/esp32c6` and `examples/esp32s3` firmware (the latter with Espressif's Xtensa toolchain, through `esp-rs/xtensa-toolchain`); checks both MSRVs; runs `cargo deny check` (`deny.toml`); and runs `scripts/check-dep-age.py`, which fails if any locked crates.io version was published less than 14 days earlier. The `trouble` and `trouble-central` features do not build for `thumbv6m-none-eabi` (`static_cell` 2.1.1, through `trouble-host`, uses atomic compare-and-swap, which that target lacks). Nothing needs `libudev` or `libdbus`.
 
 To check the ESP32 backend in your own firmware, build your firmware crate with `impromptu-wifi-embassy` features `esp` (plus `trouble` for BLE), your chip's esp-radio feature, and `esp-hal/unstable`, for example targeting `riscv32imac-unknown-none-elf` on an ESP32-C6. Before publishing, set `repository` in the workspace `Cargo.toml` and add `LICENSE-MIT` and `LICENSE-APACHE`.
 
