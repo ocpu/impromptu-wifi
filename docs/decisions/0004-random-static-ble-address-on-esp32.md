@@ -1,7 +1,7 @@
 ---
 status: accepted
 date: 2026-11-08
-decision-makers: project maintainer
+decision-makers: ocpu (maintainer)
 ---
 
 # Advertise from a random static address on the ESP32

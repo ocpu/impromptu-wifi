@@ -46,8 +46,9 @@ matching capability bits.
   asks.
 - "Request current state" on a provisioned serial device also re-sends the
   result of the successful provisioning, as the serial specification asks.
-- Hostnames are checked against the specification's rule (letters, digits and
-  hyphens, at most 255 characters) and refused with error `0x05`.
+- Hostnames are checked against the specification's rule (RFC 1123: letters,
+  digits and hyphens, at most 255 characters, no leading or trailing hyphen)
+  and refused with error `0x05`.
 - The BLE authorization timeout restarts after a failed join and after a
   hostname or device-name write.
 - The BLE advertisement carries the service UUID and the service data
@@ -110,4 +111,4 @@ This is outside the Improv Wi-Fi specification. Rationale:
 | SSID | 32 bytes | 802.11 |
 | Passphrase | 64 bytes (8-63 characters, or 64 hexadecimal digits) | IEEE 802.11-2020, Annex J.4 |
 | Redirect URL | 128 bytes | `MAX_URL_LEN` in `impromptu-wifi-traits` |
-| Networks per scan answer | 16, strongest first, one per SSID | `SCAN_CAPACITY` in `impromptu-wifi-core` |
+| Networks per scan answer | 16 | `SCAN_CAPACITY` in `impromptu-wifi-core`. Order and duplicates are up to the backend: `WifiScanner` asks for strongest first; the ESP32 and Linux backends also keep one entry per SSID. |

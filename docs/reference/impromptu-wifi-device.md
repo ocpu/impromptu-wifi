@@ -27,15 +27,15 @@ At least one of `--serial` and `--ble` is required; both may be given.
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--serial <PATH>` | - | Serve Improv on this serial port, for example `/dev/ttyGS0` (USB gadget mode) or `/dev/serial0` (UART). If it can't be opened, retry every 2 s; a gadget port appears only once a USB host enumerates it. |
+| `--serial <SERIAL>` | - | Serve Improv on this serial port, for example `/dev/ttyGS0` (USB gadget mode) or `/dev/serial0` (UART). If it can't be opened, retry every 2 s; a gadget port appears only once a USB host enumerates it. |
 | `--ble` | off | Offer Improv over Bluetooth LE while the machine is offline; see [When Bluetooth is offered](#when-bluetooth-is-offered). |
 | `--baud <BAUD>` | `115200` | Serial baud rate. |
-| `--interface <NAME>` | first one | Wi-Fi interface. With wpa_supplicant, the first control socket in `--wpa-ctrl-dir` that is not a P2P device. |
+| `--interface <INTERFACE>` | first one | Wi-Fi interface. With wpa_supplicant, the first control socket in `--wpa-ctrl-dir` that is not a P2P device. |
 | `--backend <BACKEND>` | `auto` | `networkmanager`, `wpa-supplicant`, or `auto`: NetworkManager if it holds its D-Bus name, otherwise wpa_supplicant. |
-| `--wpa-ctrl-dir <DIR>` | `/var/run/wpa_supplicant` | wpa_supplicant's control socket directory (its `ctrl_interface`). |
+| `--wpa-ctrl-dir <WPA_CTRL_DIR>` | `/var/run/wpa_supplicant` | wpa_supplicant's control socket directory (its `ctrl_interface`). |
 | `--ignore-wired` | off | Count the machine as offline while Wi-Fi is, even when it is online through Ethernet or another interface. |
-| `--firmware-name <NAME>` | `impromptu-wifi-linux` | Firmware name reported in device info. |
-| `--firmware-version <VERSION>` | the crate version | Firmware version reported in device info. |
+| `--firmware-name <FIRMWARE_NAME>` | `impromptu-wifi-linux` | Firmware name reported in device info. |
+| `--firmware-version <FIRMWARE_VERSION>` | the crate version | Firmware version reported in device info. |
 
 ## Backends
 
@@ -117,9 +117,13 @@ One line per event on standard error, which the journal keeps:
 | `warn: joining "<ssid>" failed: <reason>` | The join failed; the client sees `Unable to connect`. |
 | `info: online; reachable at <url>` | The machine is online; Bluetooth stops. |
 | `info: stopped offering Improv over Bluetooth` | Advertising and the GATT service are gone. |
+| `warn: opening <path>: ...; retrying` | The serial port does not exist or can't be opened yet; retried every 2 s. A USB gadget port appears only once a host enumerates it. |
 | `info: serving Improv on <path>` / `warn: serial link ended: ...; reopening` | Serial transport. |
+| `error: Bluetooth: ...; serving serial only` | With `--serial` as well: Bluetooth failed (for example blocked by rfkill), and the daemon continues on serial. |
 | `error: registering the Improv service: the Bluetooth adapter is blocked by rfkill; ...` | Unblock Bluetooth, for example `rfkill unblock bluetooth`. |
 | `error: no wpa_supplicant control socket in <dir>` | wpa_supplicant isn't running there, or the user can't read the directory. |
 
-On an `error:` line the daemon exits with status 1, and the unit restarts it
-after 5 s.
+After an `error:` line the daemon exits with status 1, and the unit restarts
+it after 5 s. The exception is a Bluetooth failure while `--serial` is also
+given: it is logged as `error: Bluetooth: ...; serving serial only`, and the
+daemon continues on serial.

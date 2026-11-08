@@ -1,7 +1,7 @@
 ---
 status: accepted
 date: 2026-11-08
-decision-makers: project maintainer
+decision-makers: ocpu (maintainer)
 ---
 
 # Report a lost network as a return from Provisioned
@@ -29,8 +29,9 @@ saved network, which a background rejoin can still use.
 ### Consequences
 
 * Good, because firmware with `keep_online` reopens provisioning after three
-  failed rejoins and keeps retrying; the Linux daemon does the same when its
-  backend reports the machine offline.
+  failed rejoins by default (`KeepOnline::failures_before_reprovision`) and
+  keeps retrying; the Linux daemon does the same when its backend reports the
+  machine offline.
 * Bad, because it is not in the specification. A client that stops reading
   the state after Provisioned sees the change only when it reads again.
 

@@ -26,10 +26,10 @@ are mutually exclusive. `ports` and `discover` need neither.
 | Option | Default | Meaning |
 |---|---|---|
 | `-p`, `--port <PORT>` | - | Serial port of the device, for example `/dev/ttyACM0`. See `ports`. |
-| `-b`, `--ble <BLE>` | - | Bluetooth device: its address, or part of its name. The tool scans for up to 10 s and takes the strongest match. See `discover`. |
+| `-b`, `--ble <BLE>` | - | Bluetooth device: its address, or part of its name. The tool scans for up to 10 s and stops as soon as a matching device is seen; if several match at that moment, it uses the strongest. See `discover`. |
 | `--baud <BAUD>` | `115200` | Serial baud rate. |
 | `--reset` | off | Serial only: reset the device first, for ESP32 boards with the usual DTR/RTS auto-reset wiring, then wait 1.5 s for it to boot. |
-| `--timeout <SECONDS>` | `10` | How long to wait for an answer. Joining a network, and waiting for a button press, always allow at least 60 s. |
+| `--timeout <TIMEOUT>` | `10` | How long to wait for an answer. Joining a network, and waiting for a button press, always allow at least 60 s. |
 | `-h`, `--help` | | Print help. |
 | `-V`, `--version` | | Print the version. |
 
@@ -142,6 +142,7 @@ URL:      http://192.168.0.234
 |---|---|
 | `0` | The command succeeded. |
 | `1` | It failed. A message starting with `error:` on standard error says why. |
+| `2` | The arguments were invalid; the usage error is printed. |
 
 ## Errors
 
@@ -152,6 +153,7 @@ URL:      http://192.168.0.234
 | `the device needs authorization; press its button and try again` | A write was refused because the device was not authorized. |
 | `the device doesn't support this command` | The device does not implement the command (for example `hostname` on the ESP32-S3 example). |
 | `no answer from the device within <n>s` | Raise `--timeout`, or check the connection. |
+| `this command isn't available over this connection` | The command does not exist on this transport: `identify` is BLE only, `network` serial only. |
 | `starting Bluetooth; check that the bluetooth service (BlueZ) is running and an adapter is present: ...` | Linux: BlueZ is not reachable or has no adapter. On macOS and Windows the message asks to check that Bluetooth is on and the program may use it. |
 
 For Bluetooth problems such as dropped connections, see

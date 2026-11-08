@@ -45,8 +45,9 @@ device matching "<name>" is advertising`.
 4. For the 1.28 s interval: set `LEMinAdvertisementInterval=160` and
    `LEMaxAdvertisementInterval=240` (BlueZ 5.55), or `MinAdvertisementInterval`
    and `MaxAdvertisementInterval` in the `[LE]` section (5.66), in
-   `/etc/bluetooth/main.conf`, and restart `bluetooth`. Units are 0.625 ms, so
-   this is 100 to 150 ms. `setup.sh` does this.
+   `/etc/bluetooth/main.conf`. Units are 0.625 ms, so this is 100 to 150 ms.
+   Then restart `bluetooth`; this disconnects every Bluetooth device on the
+   machine. `setup.sh` does this.
 
 ### Verify
 
@@ -74,13 +75,31 @@ Linux device.
 
 On the device:
 
-1. Start `bluetoothd` without its MIDI plugin: a systemd drop-in for
-   `bluetooth.service` with `ExecStart=/usr/libexec/bluetooth/bluetoothd
-   --noplugin=midi`.
-2. On images with PipeWire, turn off WirePlumber's BLE-MIDI. WirePlumber 0.5:
-   a file in `/etc/wireplumber/wireplumber.conf.d/` with
-   `wireplumber.profiles = { main = { monitor.bluez-midi = disabled } }`.
-   Then restart WirePlumber for each logged-in user.
+1. Start `bluetoothd` without its MIDI plugin. Find its path with
+   `systemctl show -p ExecStart bluetooth` (for example
+   `/usr/libexec/bluetooth/bluetoothd`), and create
+   `/etc/systemd/system/bluetooth.service.d/no-midi.conf`:
+
+   ```ini
+   [Service]
+   ExecStart=
+   ExecStart=/usr/libexec/bluetooth/bluetoothd --noplugin=midi
+   ```
+
+   The empty `ExecStart=` clears the original command. Run
+   `systemctl daemon-reload` and `systemctl restart bluetooth`; the restart
+   disconnects every Bluetooth device on the machine.
+2. On images with PipeWire, turn off WirePlumber's BLE-MIDI:
+   - WirePlumber 0.5: a file in `/etc/wireplumber/wireplumber.conf.d/` with
+     `wireplumber.profiles = { main = { monitor.bluez-midi = disabled } }`.
+   - WirePlumber 0.4 releases that have a BLE-MIDI monitor (a
+     `/usr/share/wireplumber/bluetooth.lua.d/*midi*` file): a file in
+     `/etc/wireplumber/bluetooth.lua.d/` with
+     `if bluez_midi_monitor then bluez_midi_monitor.enabled = false end`.
+     WirePlumber 0.4.13 has no such monitor and needs nothing.
+
+   Then restart WirePlumber for each logged-in user; this interrupts their
+   audio briefly.
 
 `setup.sh` does both.
 
@@ -131,7 +150,8 @@ lists the service UUIDs the client has cached.
 
 ### Resolve
 
-1. A Linux client: `bluetoothctl remove <address>`, then connect again.
+1. A Linux client: `bluetoothctl remove <address>`, then connect again. This
+   also deletes any pairing with the device.
 2. Home Assistant: restart Home Assistant. Its `bleak_esphome` library keeps
    each device's layout in memory and does not check the GATT Database Hash.
 3. For firmware you build: expose a Database Hash (`add_gap_and_gatt` in

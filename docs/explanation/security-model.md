@@ -60,7 +60,7 @@ Rationale: [ADR-0002](../decisions/0002-offer-bluetooth-only-while-offline.md).
 | In transit, BLE | The specification defines no encryption, and this implementation does not require an encrypted link. The passphrase is readable by anyone who captures the BLE traffic during provisioning. |
 | On the command line | `impromptu-wifi provision` prompts for the passphrase when it is not given. `--password` puts it in the shell history and the process list. |
 | In logs | The Linux daemon logs network names, not passphrases. The wpa_supplicant backend redacts every `SET_NETWORK` value except the SSID from messages and logs. |
-| Stored, ESP32 firmware | `FlashStore` writes the passphrase in plain text to one flash sector, as ESP-IDF's NVS does by default. Flash encryption protects it where the chip has it enabled. |
+| Stored, ESP32 firmware | `FlashStore` writes the passphrase in plain text to one flash sector. Anyone who can read the flash can read it. |
 | Stored, Linux | By NetworkManager (a keyfile under `/etc/NetworkManager/system-connections/`) or by wpa_supplicant (`wpa_supplicant.conf`), with the permissions those programs set. |
 
 ## Linux service privileges

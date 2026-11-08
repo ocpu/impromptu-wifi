@@ -126,8 +126,8 @@ Cross-cutting behavior that spans several files:
 
 ## Documentation
 
-- `docs/` follows Diátaxis (`tutorials/`, `how-to/`, `reference/`,
-  `explanation/`) with MADR 4.0.0 records in `docs/decisions/NNNN-*.md`;
+- `docs/` follows Diátaxis (`how-to/`, `reference/`, `explanation/`; add
+  `tutorials/` with the first tutorial) with MADR 4.0.0 records in `docs/decisions/NNNN-*.md`;
   index in `docs/README.md`. Accepted ADRs are immutable; supersede instead.
 - `SUPPORT.md` distinguishes Tested (on named hardware, with date) / Built /
   Untested; don't upgrade a status without a hardware test.

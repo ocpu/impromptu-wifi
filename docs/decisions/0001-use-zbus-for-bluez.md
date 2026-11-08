@@ -1,7 +1,7 @@
 ---
 status: accepted
 date: 2026-11-08
-decision-makers: project maintainer
+decision-makers: ocpu (maintainer)
 ---
 
 # Talk to BlueZ over D-Bus with zbus

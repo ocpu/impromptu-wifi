@@ -1,7 +1,7 @@
 ---
 status: accepted
 date: 2026-11-08
-decision-makers: project maintainer
+decision-makers: ocpu (maintainer)
 ---
 
 # Expose a GATT Database Hash from trouble-host firmware
