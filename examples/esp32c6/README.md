@@ -45,6 +45,21 @@ table has one at `0x9000`.
 * A save erases the sector before writing it. If power fails between the
   two, the device boots unprovisioned.
 
+## Bluetooth address
+
+The firmware advertises from a random static address derived from the
+chip's factory MAC (the two most significant bits set, as the Bluetooth
+Core Specification, Vol 6, Part B, 1.3.2.1 requires). It is the same on
+every boot and differs from the chip's public address.
+
+Clients such as ESPHome Bluetooth proxies cache a device's GATT layout by
+address, and this firmware has no Service Changed or Database Hash
+characteristic that would tell them it changed. With the public address, a
+proxy that had seen earlier firmware on the same chip used that firmware's
+layout, and Home Assistant failed to subscribe with "Write not permitted".
+A future firmware that changes the GATT layout can hit the same problem
+under this address.
+
 ## Status LED
 
 The WS2812 RGB LED on GPIO8, driven by the RMT peripheral at 80 MHz.
