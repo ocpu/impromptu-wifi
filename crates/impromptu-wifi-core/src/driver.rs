@@ -83,6 +83,15 @@ where
         self.url = url;
     }
 
+    /// The device left its network: report the idle state again, so a
+    /// client can provision it anew. See [`Machine::mark_unprovisioned`].
+    pub fn mark_unprovisioned(&mut self) {
+        if self.machine.state() == State::Provisioned {
+            self.machine.mark_unprovisioned();
+            self.url = None;
+        }
+    }
+
     /// Why the most recent connection attempt failed, if it did. The client
     /// only ever sees "unable to connect"; this keeps the detail for logs.
     pub fn last_connect_error(&self) -> Option<ConnectError> {
@@ -145,6 +154,9 @@ where
     /// * [`DeviceEvent::Provisioned`]: another driver joined a network, so an
     ///   idle driver reports [`State::Provisioned`] too, as
     ///   [`mark_provisioned`](Self::mark_provisioned) does.
+    /// * [`DeviceEvent::Unprovisioned`]: the device left its network, so a
+    ///   provisioned driver reports the idle state again, as
+    ///   [`mark_unprovisioned`](Self::mark_unprovisioned) does.
     pub async fn run_with<A: AuthSource, E: EventSource>(
         &mut self,
         auth: &mut A,
@@ -179,6 +191,7 @@ where
                 self.machine.set_available(available)
             }
             Either3::Third(DeviceEvent::Provisioned(url)) => self.mark_provisioned(url),
+            Either3::Third(DeviceEvent::Unprovisioned) => self.mark_unprovisioned(),
             // `DeviceEvent` is non-exhaustive: ignore events this version
             // doesn't know.
             Either3::Third(_) => {}

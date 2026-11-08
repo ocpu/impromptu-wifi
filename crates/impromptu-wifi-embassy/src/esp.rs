@@ -1,8 +1,7 @@
 //! An ESP32 Wi-Fi backend over `esp-radio` (1.0.0-beta.1, for esp-hal 1.2).
 //!
-//! **Not compiled in this workspace's CI**, which has no Xtensa/RISC-V
-//! target; check it on a machine with the ESP toolchain. Written against the
-//! esp-radio 1.0.0-beta.1 sources.
+//! Built in CI through `examples/esp32c6` only, as it needs a chip
+//! feature. Written against the esp-radio 1.0.0-beta.1 sources.
 //!
 //! ```ignore
 //! let (controller, interfaces) = /* esp-radio setup */;
@@ -16,6 +15,10 @@
 //!     // persist creds.ssid / creds.password to flash
 //! }
 //! ```
+//!
+//! To persist them, wrap the backend in
+//! [`PersistOnJoin`](impromptu_wifi_core::PersistOnJoin) with a
+//! `FlashStore` (feature `flash`) instead, as `examples/esp32c6` does.
 //!
 //! # Requirements in the application
 //!
@@ -38,8 +41,8 @@ use esp_radio::wifi::{
     Password, Ssid as EspSsid, WifiController,
 };
 use impromptu_wifi_core::traits::{
-    ConnectError, NetworkFlags, NetworkInfo, NetworkStatus, ScanError, Ssid, Url, WifiAuth,
-    WifiConnect, WifiScanner,
+    ConnectError, NetworkFlags, NetworkInfo, NetworkStatus, ScanError, Url, WifiAuth, WifiConnect,
+    WifiScanner,
 };
 
 use crate::net::{wait_for_url, wifi_flags, DEFAULT_IP_TIMEOUT};
@@ -47,15 +50,7 @@ use crate::net::{wait_for_url, wifi_flags, DEFAULT_IP_TIMEOUT};
 /// How long [`EspWifi`] waits for association by default.
 pub const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// The credentials of the last successful connection, for the application
-/// to persist.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Credentials {
-    /// Network name.
-    pub ssid: Ssid,
-    /// Passphrase (empty for open networks).
-    pub password: heapless::String<64>,
-}
+pub use impromptu_wifi_core::traits::Credentials;
 
 /// ESP32 station-mode Wi-Fi for Improv.
 pub struct EspWifi<'d, 'n> {
@@ -167,11 +162,8 @@ impl WifiConnect for EspWifi<'_, '_> {
             ),
         };
 
-        self.credentials = Some(Credentials {
-            ssid: Ssid::try_from(ssid).map_err(|_| ConnectError::Failed)?,
-            password: heapless::String::try_from(password)
-                .map_err(|_| ConnectError::InvalidCredentials)?,
-        });
+        self.credentials =
+            Some(Credentials::new(ssid, password).ok_or(ConnectError::InvalidCredentials)?);
         Ok(url)
     }
 }

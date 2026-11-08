@@ -62,6 +62,14 @@ pub type Ssid = heapless::String<MAX_SSID_LEN>;
 /// A URL the client should open after provisioning, such as the device's web UI.
 pub type Url = heapless::String<MAX_URL_LEN>;
 
+/// Longest passphrase, in bytes: a WPA2 passphrase is 8 to 63 characters,
+/// and a raw pre-shared key 64 hexadecimal digits (IEEE 802.11-2020,
+/// Annex J.4).
+pub const MAX_PASSPHRASE_LEN: usize = 64;
+
+/// A Wi-Fi passphrase. Empty for open networks.
+pub type Passphrase = heapless::String<MAX_PASSPHRASE_LEN>;
+
 // ---------------------------------------------------------------------------
 // Data
 // ---------------------------------------------------------------------------
@@ -129,6 +137,43 @@ impl NetworkInfo {
             rssi_dbm,
             auth,
         })
+    }
+}
+
+/// The settings of a Wi-Fi network the device joined, for a
+/// [`CredentialStore`].
+#[derive(Clone, PartialEq, Eq)]
+pub struct Credentials {
+    /// Network name.
+    pub ssid: Ssid,
+    /// Passphrase (empty for open networks).
+    pub password: Passphrase,
+}
+
+impl Credentials {
+    /// Build credentials, or `None` if `ssid` is longer than
+    /// [`MAX_SSID_LEN`] or `password` longer than [`MAX_PASSPHRASE_LEN`].
+    pub fn new(ssid: &str, password: &str) -> Option<Self> {
+        Some(Self {
+            ssid: Ssid::try_from(ssid).ok()?,
+            password: Passphrase::try_from(password).ok()?,
+        })
+    }
+}
+
+/// Shows the SSID only, so the passphrase stays out of logs.
+impl core::fmt::Debug for Credentials {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Credentials")
+            .field("ssid", &self.ssid)
+            .finish_non_exhaustive()
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for Credentials {
+    fn format(&self, f: defmt::Formatter<'_>) {
+        defmt::write!(f, "Credentials {{ ssid: {}, .. }}", self.ssid.as_str())
     }
 }
 
@@ -319,6 +364,39 @@ pub trait NetworkStatus {
     /// already online when it started). Defaults to none.
     async fn current_url(&self) -> Option<Url> {
         None
+    }
+}
+
+/// Keeps the credentials of the last network joined across restarts, so a
+/// device can rejoin at boot instead of asking to be provisioned again.
+///
+/// Implementations write to flash, a file, or a platform service. The
+/// driver doesn't use this trait itself; wrap the Wi-Fi object in
+/// `impromptu_wifi_core::PersistOnJoin` to save after each successful join.
+pub trait CredentialStore {
+    /// Why an operation failed.
+    type Error: core::fmt::Debug;
+
+    /// The saved credentials, or `None` if nothing valid is saved.
+    async fn load(&mut self) -> Result<Option<Credentials>, Self::Error>;
+
+    /// Replace the saved credentials.
+    async fn save(&mut self, credentials: &Credentials) -> Result<(), Self::Error>;
+
+    /// Remove the saved credentials, for a factory reset.
+    async fn clear(&mut self) -> Result<(), Self::Error>;
+}
+
+impl<T: CredentialStore + ?Sized> CredentialStore for &mut T {
+    type Error = T::Error;
+    async fn load(&mut self) -> Result<Option<Credentials>, Self::Error> {
+        (**self).load().await
+    }
+    async fn save(&mut self, credentials: &Credentials) -> Result<(), Self::Error> {
+        (**self).save(credentials).await
+    }
+    async fn clear(&mut self) -> Result<(), Self::Error> {
+        (**self).clear().await
     }
 }
 
@@ -521,6 +599,15 @@ pub enum DeviceEvent {
     /// another driver on another transport, and can be reached at this URL.
     /// An idle driver then reports `Provisioned`, so all transports agree.
     Provisioned(Option<Url>),
+    /// The device is no longer on a network and can be provisioned again,
+    /// for example after it lost its network and could not rejoin. A
+    /// provisioned driver returns to `Authorized` or
+    /// `AuthorizationRequired`.
+    ///
+    /// The Improv Wi-Fi specification does not define a transition out of
+    /// `Provisioned`; reporting one is this crate's choice, so that a client
+    /// can provision the device again without a restart.
+    Unprovisioned,
 }
 
 /// Source of [`DeviceEvent`]s for a driver.
@@ -599,6 +686,21 @@ mod tests {
         assert!(NetworkInfo::new("home", -40, WifiAuth::Wpa2Personal).is_some());
         let too_long = "this-ssid-is-definitely-longer-than-32-bytes";
         assert!(NetworkInfo::new(too_long, -40, WifiAuth::Open).is_none());
+    }
+
+    #[test]
+    fn credentials_check_lengths_and_hide_the_passphrase() {
+        let c = Credentials::new("home", "secret-pw").unwrap();
+        assert_eq!(c.ssid.as_str(), "home");
+        assert_eq!(c.password.as_str(), "secret-pw");
+        let mut shown = heapless::String::<64>::new();
+        core::fmt::write(&mut shown, format_args!("{c:?}")).unwrap();
+        assert!(!shown.contains("secret"), "{shown}");
+
+        let long = core::str::from_utf8(&[b'x'; 65]).unwrap();
+        assert!(Credentials::new(&long[..33], "").is_none());
+        assert!(Credentials::new("home", long).is_none());
+        assert!(Credentials::new("home", &long[..64]).is_some());
     }
 
     #[test]

@@ -362,6 +362,38 @@ fn provisioned_elsewhere_is_reported_and_answered() {
 }
 
 #[test]
+fn unprovisioned_is_reported_and_provisioning_works_again() {
+    let link = SerialLink::new(Waiting {
+        input: Default::default(),
+        output: Vec::new(),
+    });
+    let mut driver = Driver::new(link, FakeWifi, FakeDevice, false);
+    driver.mark_provisioned(Some(Url::try_from("http://192.168.1.50").unwrap()));
+
+    // The device lost its network and could not rejoin.
+    let mut lost = Events([DeviceEvent::Unprovisioned].into());
+    block_on(driver.step_with(&mut NoAuth, &mut lost)).unwrap();
+    assert_eq!(driver.machine().state(), State::Authorized);
+
+    // The client is told, and new settings are accepted.
+    let (link, wifi, device) = driver.into_parts();
+    let mut io = link.into_inner();
+    let seen = decode_output(&core::mem::take(&mut io.output));
+    assert_eq!(
+        seen.last(),
+        Some(&Seen::State(State::Authorized)),
+        "{seen:?}"
+    );
+    io.input.extend(client_packet(Command::WifiSettings {
+        ssid: "home",
+        password: "hunter22",
+    }));
+    let mut driver = Driver::new(SerialLink::new(io), wifi, device, false);
+    block_on(driver.step_with(&mut NoAuth, &mut NoEvents)).unwrap();
+    assert_eq!(driver.machine().state(), State::Provisioned);
+}
+
+#[test]
 fn notify_on_join_reports_successful_joins_only() {
     let mut joined = Vec::new();
     {

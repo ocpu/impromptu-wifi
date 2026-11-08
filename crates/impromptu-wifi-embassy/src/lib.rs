@@ -6,6 +6,14 @@
 //! * [`ButtonAuth`]: an [`AuthSource`] for BLE authorization, from a button
 //!   (any `embedded_hal_async::digital::Wait` pin) and an `embassy-time`
 //!   revoke timeout.
+//! * [`Button`]: short and long presses of one button, for a device that
+//!   authorizes on a short press and resets on a long one.
+//! * [`WifiShare`]: one Wi-Fi backend for several drivers, which agree on
+//!   whether the device is provisioned.
+//! * [`keep_online`]: rejoin the saved network at boot and after a lost
+//!   connection, and reopen provisioning when that fails.
+//! * `flash` (feature `flash`): a [`CredentialStore`] in one sector of NOR
+//!   flash, for [`PersistOnJoin`].
 //! * `trouble` (feature `trouble`): the Improv GATT service for
 //!   `trouble-host` and a [`GattServer`](impromptu_wifi_ble::GattServer) on it.
 //! * `trouble::central` (feature `trouble-central`): a
@@ -32,8 +40,12 @@
 #![allow(async_fn_in_trait)]
 
 mod auth;
+pub mod button;
 #[cfg(feature = "esp")]
 pub mod esp;
+#[cfg(feature = "flash")]
+pub mod flash;
+pub mod lifecycle;
 #[cfg(feature = "embassy-net")]
 pub mod net;
 pub mod shared;
@@ -43,10 +55,12 @@ pub mod trouble;
 pub mod usb;
 
 pub use auth::ButtonAuth;
+pub use button::{Button, Press};
+pub use lifecycle::{keep_online, KeepOnline};
 pub use shared::{JoinEvents, SharedWifi, WifiShare};
 
 pub use impromptu_wifi_ble::{BleClientLink, BleLink};
 pub use impromptu_wifi_client::Client;
 pub use impromptu_wifi_core::traits::*;
-pub use impromptu_wifi_core::Driver;
+pub use impromptu_wifi_core::{Driver, PersistOnJoin};
 pub use impromptu_wifi_serial::{Duplex, SerialClientLink, SerialLink};

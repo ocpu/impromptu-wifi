@@ -1,18 +1,25 @@
-//! Improv Wi-Fi on an ESP32-C6, over USB serial and Bluetooth LE at once.
+//! Improv Wi-Fi on an ESP32-C6, over USB serial and Bluetooth LE at once,
+//! with the rest of a device's lifecycle around it.
 //!
 //! * **Serial:** the chip's USB-Serial-JTAG port, as ESP Web Tools and the
 //!   `impromptu-wifi` CLI expect. No authorization, as the serial spec
 //!   defines it.
 //! * **Bluetooth LE:** the Improv Wi-Fi GATT service through trouble-host.
-//!   Writes need a press of the BOOT button (GPIO9), valid for 60 seconds.
-//!   Advertising stops once the device is provisioned, as the spec asks.
+//!   Writes need a short press of the BOOT button (GPIO9), valid for 60
+//!   seconds. Advertising stops while the device is provisioned, as the spec
+//!   asks.
+//! * **Saved network:** each successful join is saved to the first sector of
+//!   the `nvs` partition. At boot the device rejoins it.
+//! * **Lost network:** the device rejoins with backoff. After three failed
+//!   attempts it can be provisioned again over either transport, while it
+//!   keeps trying in the background.
+//! * **Factory reset:** hold BOOT for 5 seconds. The saved network is erased
+//!   and the chip restarts unprovisioned.
 //! * **Logs:** UART0, so they never interleave with serial frames.
 //!
 //! Both transports share one Wi-Fi controller through a [`WifiShare`], which
-//! also tells each transport about joins made through the other: after a
-//! serial provisioning, BLE stops advertising, and after a BLE provisioning,
-//! serial clients see `Provisioned`. Credentials are not saved: after a
-//! reset the device asks to be provisioned again.
+//! also tells each transport about joins made through the other, and about
+//! a lost network.
 
 #![no_std]
 #![no_main]
@@ -22,7 +29,11 @@ use embassy_executor::Spawner;
 use embassy_futures::select::{select, select3, Either, Either3};
 use embassy_net::{Runner, StackResources};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
+use esp_bootloader_esp_idf::partitions::{
+    read_partition_table, DataPartitionSubType, PartitionType, PARTITION_TABLE_MAX_LEN,
+};
 use esp_hal::clock::CpuClock;
 use esp_hal::gpio::{Input, InputConfig, Pull};
 use esp_hal::rng::Rng;
@@ -31,15 +42,20 @@ use esp_hal::usb::usb_serial_jtag::UsbSerialJtag;
 use esp_hal::Async;
 use esp_radio::ble::controller::BleConnector;
 use esp_radio::wifi::{Interface, WifiController};
+use esp_storage::FlashStorage;
 use impromptu_wifi::ble::{capabilities, BleLink};
 use impromptu_wifi::device::{
-    unsupported, AuthEvent, AuthSource, DeviceInfoSource, Driver, EventSource, NoAuth,
+    unsupported, AuthEvent, AuthSource, DeviceEvent, DeviceInfoSource, Driver, EventSource, NoAuth,
 };
 use impromptu_wifi::embassy::esp::EspWifi;
+use impromptu_wifi::embassy::flash::FlashStore;
 use impromptu_wifi::embassy::trouble::{
     serve, ImprovWifiBridge, ImprovWifiService, TroubleGattServer,
 };
-use impromptu_wifi::embassy::{ButtonAuth, JoinEvents, SharedWifi, WifiShare};
+use impromptu_wifi::embassy::{
+    keep_online, Button, ButtonAuth, JoinEvents, KeepOnline, PersistOnJoin, Press, SharedWifi,
+    WifiShare,
+};
 use impromptu_wifi::proto::ble::{advertising_data, Capabilities};
 use impromptu_wifi::proto::State;
 use impromptu_wifi::serial::SerialLink;
@@ -57,14 +73,22 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
 
 extern crate alloc;
 
-/// The Wi-Fi controller, shared by the two transports (two event receivers).
-type Radio = WifiShare<CriticalSectionRawMutex, EspWifi<'static, 'static>, 2>;
-type Wifi = SharedWifi<'static, CriticalSectionRawMutex, EspWifi<'static, 'static>, 2>;
+/// The Wi-Fi controller, saving each join to flash.
+type Backend = PersistOnJoin<EspWifi<'static, 'static>, FlashStore<FlashStorage<'static>>>;
+/// The backend, shared by the two transports (two event receivers).
+type Radio = WifiShare<CriticalSectionRawMutex, Backend, 2>;
+type Wifi = SharedWifi<'static, CriticalSectionRawMutex, Backend, 2>;
 type Joins = JoinEvents<'static, CriticalSectionRawMutex, 2>;
 
 /// How long a BOOT-button press authorizes BLE writes; the spec suggests
 /// about a minute.
 const AUTH_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// How long BOOT must be held for a factory reset.
+const RESET_HOLD: Duration = Duration::from_secs(5);
+
+/// Short presses of BOOT, from the button task to the BLE authorization.
+static SHORT_PRESS: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 /// What this firmware tells clients about itself.
 #[derive(Clone, Copy)]
@@ -106,6 +130,12 @@ async fn main(spawner: Spawner) -> ! {
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     esp_rtos::start(timg0.timer0, peripherals.FROM_CPU_INTR0);
 
+    // The saved network lives in the first sector of the `nvs` partition,
+    // which nothing else in this firmware uses.
+    let mut flash = FlashStorage::new(peripherals.FLASH);
+    let offset = nvs_offset(&mut flash).expect("an nvs partition in the partition table");
+    let store = FlashStore::new(flash, offset).expect("the nvs partition starts on a sector");
+
     // Wi-Fi and the IP stack. EspWifi waits for a DHCP address after a join
     // and reports http://<address> as the redirect URL.
     let controller = WifiController::new(peripherals.WIFI, Default::default())
@@ -121,9 +151,24 @@ async fn main(spawner: Spawner) -> ! {
     spawner.spawn(net_task(runner).expect("spawning the network task"));
 
     static RADIO: StaticCell<Radio> = StaticCell::new();
-    let radio: &'static Radio =
-        RADIO.init(WifiShare::new(EspWifi::new(controller).with_stack(stack)));
+    let radio: &'static Radio = RADIO.init(WifiShare::new(PersistOnJoin::new(
+        EspWifi::new(controller).with_stack(stack),
+        store,
+    )));
     let joins = || radio.events().expect("one receiver per transport");
+
+    // Rejoin the saved network now and whenever it drops.
+    spawner.spawn(keep_online_task(radio).expect("spawning the keep-online task"));
+
+    // BOOT: a short press authorizes BLE, a long one resets.
+    let button = Input::new(
+        peripherals.GPIO9,
+        InputConfig::default().with_pull(Pull::Up),
+    );
+    spawner.spawn(
+        button_task(Button::active_low(button, RESET_HOLD), radio)
+            .expect("spawning the button task"),
+    );
 
     // Serial over USB-Serial-JTAG.
     let jtag = UsbSerialJtag::new(peripherals.USB_DEVICE).into_async();
@@ -132,22 +177,22 @@ async fn main(spawner: Spawner) -> ! {
     // Bluetooth LE.
     let transport = BleConnector::new(peripherals.BT, Default::default())
         .expect("starting the Bluetooth controller");
-    let button = Input::new(
-        peripherals.GPIO9,
-        InputConfig::default().with_pull(Pull::Up),
-    );
-    ble(
-        ExternalController::<_, 1>::new(transport),
-        button,
-        radio.handle(),
-        joins(),
-    )
-    .await;
+    ble(ExternalController::<_, 1>::new(transport), radio, joins()).await;
 
-    // Provisioned: Bluetooth is off now, serial keeps running.
+    // The Bluetooth host stopped; serial keeps running.
     loop {
         Timer::after(Duration::from_secs(3600)).await;
     }
+}
+
+/// Where the `nvs` partition starts, from the partition table in flash.
+fn nvs_offset(flash: &mut FlashStorage<'_>) -> Option<u32> {
+    let mut buf = [0u8; PARTITION_TABLE_MAX_LEN];
+    let table = read_partition_table(flash, &mut buf).ok()?;
+    let nvs = table
+        .find_partition(PartitionType::Data(DataPartitionSubType::Nvs))
+        .ok()??;
+    Some(nvs.offset())
 }
 
 #[embassy_executor::task]
@@ -156,26 +201,46 @@ async fn net_task(mut runner: Runner<'static, Interface>) -> ! {
 }
 
 #[embassy_executor::task]
+async fn keep_online_task(radio: &'static Radio) -> ! {
+    keep_online(radio, KeepOnline::default()).await
+}
+
+#[embassy_executor::task]
+async fn button_task(mut button: Button<Input<'static>>, radio: &'static Radio) -> ! {
+    loop {
+        match button.next().await {
+            Press::Short => SHORT_PRESS.signal(()),
+            Press::Long => {
+                info!("factory reset: erasing the saved network");
+                // Waits for a join in progress to finish.
+                let mut wifi = radio.wifi().lock().await;
+                if let Err(e) = wifi.forget().await {
+                    warn!("erasing the saved network: {e:?}");
+                }
+                esp_hal::system::software_reset();
+            }
+        }
+    }
+}
+
+#[embassy_executor::task]
 async fn serial_task(jtag: UsbSerialJtag<'static, Async>, wifi: Wifi, mut joins: Joins) -> ! {
     let mut driver = Driver::new(SerialLink::new(jtag), wifi, Board, false);
     loop {
         // `run_with` only returns when the link fails, for example when the
         // USB host goes away; the driver keeps its state for the next
-        // session. Joins made over BLE reach serial clients as Provisioned.
+        // session. Joins made over BLE or at boot reach serial clients as
+        // Provisioned, a lost network as Authorized.
         let Err(e) = driver.run_with(&mut NoAuth, &mut joins).await;
         warn!("serial link: {e:?}");
         Timer::after(Duration::from_millis(500)).await;
     }
 }
 
-/// Advertise and serve Improv Wi-Fi over BLE until the device is
-/// provisioned, over BLE or over serial.
-async fn ble<C: Controller>(
-    controller: C,
-    button: Input<'static>,
-    mut wifi: Wifi,
-    mut joins: Joins,
-) {
+/// Advertise and serve Improv Wi-Fi over BLE while the device is not
+/// provisioned. Returns only if the Bluetooth host fails.
+async fn ble<C: Controller>(controller: C, radio: &'static Radio, mut joins: Joins) {
+    let mut wifi: Wifi = radio.handle();
     let mut resources: HostResources<C, DefaultPacketPool, 1, 1> = HostResources::new();
     let stack = trouble_host::new(controller, &mut resources).build();
     let mut peripheral = stack.peripheral();
@@ -185,10 +250,20 @@ async fn ble<C: Controller>(
         appearance: &appearance::UNKNOWN,
     }))
     .expect("building the GATT server");
-    let mut auth = ButtonAuth::active_low(button, AUTH_TIMEOUT);
+    let mut auth = ButtonAuth::new(&SHORT_PRESS, AUTH_TIMEOUT);
 
     let session = async {
+        let mut provisioned = false;
         loop {
+            if provisioned {
+                // Quiet until the device loses its network for good.
+                while joins.next().await != DeviceEvent::Unprovisioned {}
+                info!("network lost; advertising again");
+                provisioned = false;
+                // A press made while provisioned was meant for nothing here.
+                SHORT_PRESS.reset();
+            }
+
             // Advertise the current state, and advertise again whenever the
             // button changes it, as the spec asks.
             let state = if auth.is_authorized() {
@@ -221,10 +296,12 @@ async fn ble<C: Controller>(
                     continue;
                 }
                 Either3::Second(AuthEvent::Authorize | AuthEvent::Revoke) => continue,
-                Either3::Third(_) => {
-                    info!("provisioned over serial; stopping Bluetooth");
-                    return;
+                Either3::Third(DeviceEvent::Provisioned(_)) => {
+                    info!("provisioned over serial or from flash; stopping advertising");
+                    provisioned = true;
+                    continue;
                 }
+                Either3::Third(_) => continue,
             };
             let Ok(conn) = conn.with_attribute_server(&server) else {
                 continue;
@@ -239,7 +316,7 @@ async fn ble<C: Controller>(
                 // The button was pressed before the client connected.
                 driver.machine_mut().authorize();
             }
-            let provisioned = match select(
+            let outcome = match select(
                 serve(&conn, &server.improv_wifi, &BRIDGE),
                 driver.provision_with(&mut auth, &mut joins),
             )
@@ -253,21 +330,27 @@ async fn ble<C: Controller>(
                 }
             };
             drop(driver);
-            if let Some(url) = provisioned {
-                info!("provisioned; redirect URL {url:?}");
-                // Let the client read the result, then stop.
-                let _ = select(
-                    serve(&conn, &server.improv_wifi, &BRIDGE),
-                    Timer::after(Duration::from_secs(5)),
-                )
-                .await;
-                return;
+            let Some(url) = outcome else {
+                info!("Bluetooth client disconnected");
+                continue;
+            };
+            info!("provisioned; redirect URL {url:?}");
+            if let Some(e) = radio.wifi().lock().await.take_save_error() {
+                warn!("saving the network: {e:?}");
             }
-            info!("Bluetooth client disconnected");
+            // Let the client read the result, then disconnect.
+            let _ = select(
+                serve(&conn, &server.improv_wifi, &BRIDGE),
+                Timer::after(Duration::from_secs(5)),
+            )
+            .await;
+            conn.raw().disconnect();
+            provisioned = true;
         }
     };
     match select(runner.run(), session).await {
         Either::First(Err(e)) => warn!("Bluetooth host stopped: {e:?}"),
-        Either::First(Ok(())) | Either::Second(()) => {}
+        Either::First(Ok(())) => warn!("Bluetooth host stopped"),
+        Either::Second(_) => {}
     }
 }

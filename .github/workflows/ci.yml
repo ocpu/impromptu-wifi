@@ -25,7 +25,7 @@ env:
   # Host-buildable features. `esp` needs a chip feature and is
   # covered by the esp32c6 example job; `defmt` by the no_std jobs.
   HOST_FEATURES: >-
-    impromptu-wifi-embassy/trouble,impromptu-wifi-embassy/trouble-central,impromptu-wifi-embassy/usb,impromptu-wifi-embassy/embassy-net,impromptu-wifi-linux/daemon,impromptu-wifi/embassy-trouble,impromptu-wifi/embassy-trouble-central,impromptu-wifi/embassy-usb,impromptu-wifi/embassy-net,impromptu-wifi/host-serial,impromptu-wifi/host-ble,impromptu-wifi/linux-networkmanager,impromptu-wifi/linux-hostnamed,impromptu-wifi/linux-serial,impromptu-wifi/linux-bluez
+    impromptu-wifi-embassy/trouble,impromptu-wifi-embassy/trouble-central,impromptu-wifi-embassy/usb,impromptu-wifi-embassy/embassy-net,impromptu-wifi-embassy/flash,impromptu-wifi-linux/daemon,impromptu-wifi/embassy-trouble,impromptu-wifi/embassy-trouble-central,impromptu-wifi/embassy-usb,impromptu-wifi/embassy-net,impromptu-wifi/embassy-flash,impromptu-wifi/host-serial,impromptu-wifi/host-ble,impromptu-wifi/linux-networkmanager,impromptu-wifi/linux-hostnamed,impromptu-wifi/linux-serial,impromptu-wifi/linux-bluez
   # The crates that claim `no_std` without impromptu-wifi-embassy. The
   # facade, impromptu-wifi, builds here with no features.
   NO_STD_CRATES: >-
@@ -100,16 +100,16 @@ jobs:
           # Cortex-M0/M0+ (RP2040). No atomic compare-and-swap, which
           # static_cell (through trouble-host) needs.
           - target: thumbv6m-none-eabi
-            embassy_features: usb,embassy-net,defmt
-            facade_features: serial,ble,embassy-usb,embassy-net,defmt
+            embassy_features: usb,embassy-net,flash,defmt
+            facade_features: serial,ble,embassy-usb,embassy-net,embassy-flash,defmt
           # Cortex-M4F/M7F (nRF52, STM32F4).
           - target: thumbv7em-none-eabihf
-            embassy_features: trouble,trouble-central,usb,embassy-net,defmt
-            facade_features: serial,ble,embassy-trouble,embassy-trouble-central,embassy-usb,embassy-net,defmt
+            embassy_features: trouble,trouble-central,usb,embassy-net,flash,defmt
+            facade_features: serial,ble,embassy-trouble,embassy-trouble-central,embassy-usb,embassy-net,embassy-flash,defmt
           # ESP32-C3/C6 and other RV32IMAC chips.
           - target: riscv32imac-unknown-none-elf
-            embassy_features: trouble,trouble-central,usb,embassy-net,defmt
-            facade_features: serial,ble,embassy-trouble,embassy-trouble-central,embassy-usb,embassy-net,defmt
+            embassy_features: trouble,trouble-central,usb,embassy-net,flash,defmt
+            facade_features: serial,ble,embassy-trouble,embassy-trouble-central,embassy-usb,embassy-net,embassy-flash,defmt
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master 2026-10-16
@@ -166,7 +166,7 @@ jobs:
           - rust: "1.91"
             args: >-
               -p impromptu-wifi -p impromptu-wifi-embassy -p impromptu-wifi-host -p impromptu-wifi-cli -p impromptu-wifi-linux
-              --features impromptu-wifi-embassy/trouble,impromptu-wifi-embassy/trouble-central,impromptu-wifi-embassy/usb,impromptu-wifi-embassy/embassy-net,impromptu-wifi-linux/daemon,impromptu-wifi/embassy-trouble,impromptu-wifi/embassy-trouble-central,impromptu-wifi/embassy-usb,impromptu-wifi/embassy-net,impromptu-wifi/host-serial,impromptu-wifi/host-ble,impromptu-wifi/linux-networkmanager,impromptu-wifi/linux-hostnamed,impromptu-wifi/linux-serial,impromptu-wifi/linux-bluez
+              --features impromptu-wifi-embassy/trouble,impromptu-wifi-embassy/trouble-central,impromptu-wifi-embassy/usb,impromptu-wifi-embassy/embassy-net,impromptu-wifi-embassy/flash,impromptu-wifi-linux/daemon,impromptu-wifi/embassy-trouble,impromptu-wifi/embassy-trouble-central,impromptu-wifi/embassy-usb,impromptu-wifi/embassy-net,impromptu-wifi/embassy-flash,impromptu-wifi/host-serial,impromptu-wifi/host-ble,impromptu-wifi/linux-networkmanager,impromptu-wifi/linux-hostnamed,impromptu-wifi/linux-serial,impromptu-wifi/linux-bluez
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libudev-dev pkg-config

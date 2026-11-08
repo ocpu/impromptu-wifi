@@ -23,7 +23,7 @@ serial = ["dep:impromptu-wifi-serial", "device", "client"]
 ## Bluetooth LE transport over GATT traits, both roles (module `ble`).
 ble = ["dep:impromptu-wifi-ble", "device", "client"]
 
-## Embassy glue: `ButtonAuth` (module `embassy`).
+## Embassy glue: `ButtonAuth`, `Button`, `WifiShare`, `keep_online` (module `embassy`).
 embassy = ["dep:impromptu-wifi-embassy", "serial", "ble"]
 ## Device side over trouble-host (`embassy::trouble`).
 embassy-trouble = ["embassy", "impromptu-wifi-embassy/trouble"]
@@ -33,6 +33,8 @@ embassy-trouble-central = ["embassy", "impromptu-wifi-embassy/trouble-central"]
 embassy-usb = ["embassy", "impromptu-wifi-embassy/usb"]
 ## Redirect URLs and connectivity from an embassy-net stack (`embassy::net`).
 embassy-net = ["embassy", "impromptu-wifi-embassy/embassy-net"]
+## A credential store in NOR flash over embedded-storage (`embassy::flash`).
+embassy-flash = ["embassy", "impromptu-wifi-embassy/flash"]
 ## ESP32 Wi-Fi backend over esp-radio (`embassy::esp`). The application
 ## also enables its chip's esp-radio feature, for example `esp-radio/esp32c6`.
 esp = ["embassy-net", "impromptu-wifi-embassy/esp"]

@@ -21,7 +21,9 @@ embassy-net = ["dep:embassy-net"]
 ## ESP32 Wi-Fi backend over esp-radio. Enable your chip's esp-radio feature
 ## (for example `esp-radio/esp32c6`) and a global allocator in the application.
 esp = ["dep:esp-radio", "esp-radio/wifi", "esp-radio/unstable", "embassy-net"]
-defmt = ["impromptu-wifi-core/defmt", "impromptu-wifi-ble/defmt", "embassy-time/defmt"]
+## A credential store in NOR flash, over embedded-storage.
+flash = ["dep:embedded-storage"]
+defmt = ["dep:defmt", "impromptu-wifi-core/defmt", "impromptu-wifi-ble/defmt", "embassy-time/defmt"]
 
 [dependencies]
 impromptu-wifi-core.workspace = true
@@ -29,11 +31,13 @@ impromptu-wifi-client.workspace = true
 impromptu-wifi-serial.workspace = true
 impromptu-wifi-ble.workspace = true
 heapless.workspace = true
+defmt = { workspace = true, optional = true }
 embassy-futures.workspace = true
 embassy-time = "0.5.1"
 embassy-sync = "0.8.0"
 embedded-hal-async = "1.0.0"
 embedded-io-async = { workspace = true, optional = true }
+embedded-storage = { version = "0.3.2", optional = true }
 embassy-usb = { version = "0.6.0", optional = true, default-features = false }
 embassy-net = { version = "0.9.1", optional = true, default-features = false, features = ["proto-ipv4", "medium-ethernet", "dhcpv4"] }
 # Beta, pinned exactly: esp-radio 1.0 is the line that pairs with esp-hal 1.2.
@@ -50,3 +54,7 @@ embedded-hal = "1.0.0"
 [[test]]
 name = "usb_zlp"
 required-features = ["usb"]
+
+[[test]]
+name = "flash"
+required-features = ["flash"]

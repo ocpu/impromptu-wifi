@@ -6,7 +6,9 @@
 //! controller, which can't be cloned. Put the backend in a [`WifiShare`],
 //! give each driver a [`SharedWifi`] handle, and pass each driver the
 //! share's [`JoinEvents`]. When one driver provisions the device, the others
-//! report `Provisioned` too, and a BLE driver's `provision_with` returns:
+//! report `Provisioned` too, and a BLE driver's `provision_with` returns.
+//! [`WifiShare::announce_unprovisioned`] moves them all back, so the device
+//! can be provisioned again:
 //!
 //! ```ignore
 //! static SHARE: StaticCell<WifiShare<CriticalSectionRawMutex, EspWifi, 2>> = StaticCell::new();
@@ -28,12 +30,12 @@ use impromptu_wifi_core::traits::{
     Url, WifiConnect, WifiScanner,
 };
 
-/// A Wi-Fi backend `W` behind a mutex, and the announcement of its last
-/// successful join. `RECEIVERS` is how many [`JoinEvents`] can exist, one
-/// per driver.
+/// A Wi-Fi backend `W` behind a mutex, and the last announcement of whether
+/// the device is provisioned. `RECEIVERS` is how many [`JoinEvents`] can
+/// exist, one per driver.
 pub struct WifiShare<M: RawMutex, W, const RECEIVERS: usize> {
     wifi: Mutex<M, W>,
-    joined: Watch<M, Option<Url>, RECEIVERS>,
+    joined: Watch<M, DeviceEvent, RECEIVERS>,
 }
 
 impl<M: RawMutex, W, const RECEIVERS: usize> WifiShare<M, W, RECEIVERS> {
@@ -57,6 +59,19 @@ impl<M: RawMutex, W, const RECEIVERS: usize> WifiShare<M, W, RECEIVERS> {
     /// started later learns that the device is already provisioned.
     pub fn events(&self) -> Option<JoinEvents<'_, M, RECEIVERS>> {
         self.joined.receiver().map(JoinEvents)
+    }
+
+    /// Tell every driver that the device left its network and can be
+    /// provisioned again ([`DeviceEvent::Unprovisioned`]), for example after
+    /// it could not rejoin. A successful join through any handle announces
+    /// [`DeviceEvent::Provisioned`] again.
+    pub fn announce_unprovisioned(&self) {
+        self.joined.sender().send(DeviceEvent::Unprovisioned);
+    }
+
+    /// Whether the last announcement was [`DeviceEvent::Provisioned`].
+    pub fn is_provisioned(&self) -> bool {
+        matches!(self.joined.try_get(), Some(DeviceEvent::Provisioned(_)))
     }
 
     /// The backend, for the application: to read the credentials after a
@@ -84,7 +99,10 @@ impl<M: RawMutex, W: WifiConnect, const R: usize> WifiConnect for SharedWifi<'_,
     async fn connect(&mut self, ssid: &str, password: &str) -> Result<Option<Url>, ConnectError> {
         let result = self.share.wifi.lock().await.connect(ssid, password).await;
         if let Ok(url) = &result {
-            self.share.joined.sender().send(url.clone());
+            self.share
+                .joined
+                .sender()
+                .send(DeviceEvent::Provisioned(url.clone()));
         }
         result
     }
@@ -113,15 +131,20 @@ impl<M: RawMutex, W: NetworkStatus, const R: usize> NetworkStatus for SharedWifi
     }
 }
 
-/// Joins made through a [`WifiShare`], as an [`EventSource`].
+/// Joins made through a [`WifiShare`], as [`DeviceEvent::Provisioned`], and
+/// [`DeviceEvent::Unprovisioned`] from
+/// [`announce_unprovisioned`](WifiShare::announce_unprovisioned).
+///
+/// Only the latest announcement is kept: a driver that is busy while two
+/// happen sees the second.
 pub struct JoinEvents<'a, M: RawMutex, const RECEIVERS: usize>(
-    Receiver<'a, M, Option<Url>, RECEIVERS>,
+    Receiver<'a, M, DeviceEvent, RECEIVERS>,
 );
 
 impl<M: RawMutex, const R: usize> EventSource for JoinEvents<'_, M, R> {
     async fn next(&mut self) -> DeviceEvent {
         // Cancel-safe: the receiver only marks a value seen when `changed`
         // returns it.
-        DeviceEvent::Provisioned(self.0.changed().await)
+        self.0.changed().await
     }
 }

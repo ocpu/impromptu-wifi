@@ -202,6 +202,19 @@ impl Machine {
         }
     }
 
+    /// The device left its network and can be provisioned again. Moves a
+    /// provisioned machine back to [`State::Authorized`] or
+    /// [`State::AuthorizationRequired`], whichever authorization is in
+    /// effect; does nothing in other states.
+    ///
+    /// The spec does not define a transition out of `Provisioned`; see
+    /// [`DeviceEvent::Unprovisioned`](crate::DeviceEvent::Unprovisioned).
+    pub fn mark_unprovisioned(&mut self) {
+        if self.state == State::Provisioned {
+            self.set_state(Self::idle_state(self.authorized));
+        }
+    }
+
     /// Mark provisioning unavailable or available again (serial only),
     /// for example when the Wi-Fi radio is switched off.
     pub fn set_available(&mut self, available: bool) {
@@ -543,5 +556,37 @@ mod tests {
         let mut m = Machine::new(Transport::Serial, false);
         m.on_rpc_error(ErrorCode::NotAuthorized);
         assert_eq!(m.error(), ErrorCode::Unknown);
+    }
+
+    #[test]
+    fn unprovisioned_returns_to_the_idle_state_for_the_authorization() {
+        let mut ble = Machine::new(Transport::Ble, true);
+        ble.mark_provisioned();
+        ble.mark_unprovisioned();
+        assert_eq!(ble.state(), State::AuthorizationRequired);
+
+        ble.authorize();
+        ble.mark_provisioned();
+        ble.mark_unprovisioned();
+        assert_eq!(ble.state(), State::Authorized);
+
+        let mut serial = Machine::new(Transport::Serial, false);
+        serial.mark_provisioned();
+        drain(&mut serial);
+        serial.mark_unprovisioned();
+        assert_eq!(drain(&mut serial).1, Some(State::Authorized));
+    }
+
+    #[test]
+    fn unprovisioned_leaves_other_states_alone() {
+        let mut m = Machine::new(Transport::Serial, false);
+        m.on_command(CREDS);
+        m.mark_unprovisioned();
+        assert_eq!(m.state(), State::Provisioning);
+
+        let mut m = Machine::new(Transport::Serial, false);
+        m.set_available(false);
+        m.mark_unprovisioned();
+        assert_eq!(m.state(), State::Stopped);
     }
 }

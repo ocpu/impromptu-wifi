@@ -12,13 +12,14 @@ license = "MIT OR Apache-2.0"
 [workspace]
 
 [dependencies]
-impromptu-wifi = { path = "../../crates/impromptu-wifi", features = ["esp", "embassy-trouble"] }
+impromptu-wifi = { path = "../../crates/impromptu-wifi", features = ["esp", "embassy-trouble", "embassy-flash"] }
 
 esp-hal = { version = "1.2.2", features = ["esp32c6", "log-04", "unstable"] }
 esp-rtos = { version = "0.4.0", features = ["embassy", "esp-alloc", "esp-radio", "esp32c6", "log-04"] }
 esp-radio = { version = "=1.0.0-beta.1", features = ["ble", "coex", "esp-alloc", "esp32c6", "log-04", "unstable", "wifi"] }
 esp-alloc = { version = "0.11.0", features = ["esp32c6"] }
 esp-bootloader-esp-idf = { version = "0.6.0", features = ["esp32c6", "log-04"] }
+esp-storage = { version = "0.10.0", features = ["esp32c6", "embedded-storage"] }
 # Logs go to UART0 so USB-Serial-JTAG carries only Improv Wi-Fi frames.
 esp-println = { version = "0.18.0", default-features = false, features = ["esp32c6", "log-04", "uart", "critical-section"] }
 log = "0.4.27"

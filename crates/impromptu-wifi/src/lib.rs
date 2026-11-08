@@ -13,7 +13,7 @@
 //! | `client` | `client` | Session machine and async `Client` |
 //! | `serial` | `serial` | Serial transport, both roles |
 //! | `ble` | `ble` | BLE transport over GATT traits, both roles |
-//! | `embassy` | `embassy` | `ButtonAuth`; `embassy-trouble`, `embassy-trouble-central`, `embassy-usb`, `embassy-net` and `esp` add submodules |
+//! | `embassy` | `embassy` | `ButtonAuth`, `Button`, `WifiShare`, `keep_online`; `embassy-trouble`, `embassy-trouble-central`, `embassy-usb`, `embassy-net`, `embassy-flash` and `esp` add submodules |
 //! | `host` | `host` | Desktop client side; `host-serial` and `host-ble` select transports |
 //! | `linux` | `linux` | Linux device side; `linux-networkmanager`, `linux-hostnamed`, `linux-serial` and `linux-bluez` select backends |
 //! | `defmt` | | `defmt::Format` for every enabled `no_std` layer |

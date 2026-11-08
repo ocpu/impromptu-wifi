@@ -808,6 +808,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "embedded-storage"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c815b3ed4213d85d6cfd274b871f430c0681084e28dfd4a537877f47f844ec83"
+
+[[package]]
 name = "endi"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1312,6 +1318,7 @@ dependencies = [
 name = "impromptu-wifi-embassy"
 version = "0.1.0"
 dependencies = [
+ "defmt",
  "embassy-futures",
  "embassy-net",
  "embassy-sync 0.8.0",
@@ -1320,6 +1327,7 @@ dependencies = [
  "embedded-hal 1.0.0",
  "embedded-hal-async",
  "embedded-io-async 0.7.0",
+ "embedded-storage",
  "esp-radio",
  "heapless 0.9.3",
  "impromptu-wifi-ble",

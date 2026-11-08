@@ -24,19 +24,21 @@ pub mod driver;
 pub mod link;
 pub mod machine;
 pub mod notify;
+pub mod persist;
 
 pub use driver::{ble_auth_name, Driver};
 pub use link::Link;
 pub use machine::{Decision, Machine};
 pub use notify::NotifyOnJoin;
+pub use persist::PersistOnJoin;
 
 /// Re-export of the wire-format crate.
 pub use impromptu_wifi_proto as proto;
 /// Re-export of the backend traits crate.
 pub use impromptu_wifi_traits as traits;
 pub use impromptu_wifi_traits::{
-    unsupported, AuthEvent, AuthSource, ConnectError, DeviceEvent, DeviceInfoSource,
-    DeviceNameError, EventSource, HostnameError, HostnameProvider, Identify, NetworkFlags,
-    NetworkInfo, NetworkStatus, NoAuth, NoEvents, ScanError, Url, WifiAuth, WifiConnect,
-    WifiScanner,
+    unsupported, AuthEvent, AuthSource, ConnectError, CredentialStore, Credentials, DeviceEvent,
+    DeviceInfoSource, DeviceNameError, EventSource, HostnameError, HostnameProvider, Identify,
+    NetworkFlags, NetworkInfo, NetworkStatus, NoAuth, NoEvents, ScanError, Url, WifiAuth,
+    WifiConnect, WifiScanner,
 };
