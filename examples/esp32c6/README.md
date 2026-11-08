@@ -128,7 +128,10 @@ impromptu-wifi --ble Impromptu provision --ssid home
 ```
 
 ESP Web Tools and Home Assistant's Improv Wi-Fi integration can also
-provision it, over serial and BLE respectively.
+provision it, over serial and BLE respectively. For ESP Web Tools, use a page
+that only provisions, such as https://www.improv-wifi.com/ ("Connect device
+to Wi-Fi"), and choose the USB-Serial-JTAG port. An install page, such as
+ESPHome's, can replace this firmware with its own.
 
 ## Limitations
 
