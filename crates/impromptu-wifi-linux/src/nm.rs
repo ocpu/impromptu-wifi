@@ -253,6 +253,101 @@ impl NmRadio {
     }
 }
 
+/// `http://<address>` of NetworkManager's primary connection, if any.
+async fn primary_url(conn: &Connection) -> Option<Url> {
+    let active = root(conn).await.ok()?.primary_connection().await.ok()?;
+    if active.as_str() == "/" {
+        return None;
+    }
+    url_of(conn, &active).await
+}
+
+/// `http://<address>` of an active connection's first IPv4 address.
+async fn url_of(conn: &Connection, active: &OwnedObjectPath) -> Option<Url> {
+    let ac: ActiveConnectionProxy = at(conn, active).await.ok()?;
+    let ip4 = ac.ip4_config().await.ok()?;
+    if ip4.as_str() == "/" {
+        return None;
+    }
+    let cfg: Ip4ConfigProxy = at(conn, &ip4).await.ok()?;
+    let data = cfg.address_data().await.ok()?;
+    let address = String::try_from(data.first()?.get("address")?.try_clone().ok()?).ok()?;
+    let mut url = Url::new();
+    url.push_str("http://").ok()?;
+    url.push_str(&address).ok()?;
+    Some(url)
+}
+
+/// Whether NetworkManager has the machine online, followed through its
+/// global `State` property, as an [`EventSource`].
+///
+/// Reports [`DeviceEvent::Provisioned`] when the machine comes online,
+/// however that happened (NetworkManager rejoining a saved network at boot,
+/// a user with `nmcli`), and [`DeviceEvent::Unprovisioned`] when it goes
+/// offline. A Bluetooth driver that should only run while offline returns
+/// from `provision_with` on the first; a serial driver reports both to its
+/// client.
+///
+/// "Online" is NetworkManager's `CONNECTED_LOCAL` or better. Interfaces
+/// NetworkManager doesn't manage don't count.
+pub struct NmOnline {
+    conn: Connection,
+    proxy: NetworkManagerProxy<'static>,
+    changes: zbus::proxy::PropertyStream<'static, u32>,
+    reported: bool,
+}
+
+impl NmOnline {
+    /// Start following NetworkManager's state. The first event is the
+    /// current state, if it differs from `assume_online`.
+    pub async fn new(conn: &Connection, assume_online: bool) -> Result<Self, NmError> {
+        let proxy = NetworkManagerProxy::builder(conn)
+            .cache_properties(CacheProperties::Yes)
+            .build()
+            .await?;
+        let changes = proxy.receive_state_changed().await;
+        Ok(Self {
+            conn: conn.clone(),
+            proxy,
+            changes,
+            reported: assume_online,
+        })
+    }
+
+    /// Whether the machine is online, as last known.
+    pub fn online(&self) -> bool {
+        self.proxy
+            .cached_state()
+            .ok()
+            .flatten()
+            .map_or(self.reported, |s| s >= NM_STATE_CONNECTED_LOCAL)
+    }
+}
+
+impl EventSource for NmOnline {
+    async fn next(&mut self) -> DeviceEvent {
+        // Cancel-safe, as for `NmRadio`: the cache holds a change that
+        // arrived while this future wasn't polled.
+        loop {
+            let now = self.online();
+            if now != self.reported {
+                if now {
+                    // Looked up before `reported` changes: if this future
+                    // is dropped meanwhile, the next call reports again.
+                    let url = primary_url(&self.conn).await;
+                    self.reported = true;
+                    return DeviceEvent::Provisioned(url);
+                }
+                self.reported = false;
+                return DeviceEvent::Unprovisioned;
+            }
+            if self.changes.next().await.is_none() {
+                core::future::pending::<()>().await;
+            }
+        }
+    }
+}
+
 impl EventSource for NmRadio {
     async fn next(&mut self) -> DeviceEvent {
         // Cancel-safe: the only await is the stream's, and a change that
@@ -332,31 +427,11 @@ impl NmWifi {
     }
 
     async fn primary_url(&self) -> Option<Url> {
-        let active = root(&self.conn)
-            .await
-            .ok()?
-            .primary_connection()
-            .await
-            .ok()?;
-        if active.as_str() == "/" {
-            return None;
-        }
-        self.url_of(&active).await
+        primary_url(&self.conn).await
     }
 
     async fn url_of(&self, active: &OwnedObjectPath) -> Option<Url> {
-        let ac: ActiveConnectionProxy = at(&self.conn, active).await.ok()?;
-        let ip4 = ac.ip4_config().await.ok()?;
-        if ip4.as_str() == "/" {
-            return None;
-        }
-        let cfg: Ip4ConfigProxy = at(&self.conn, &ip4).await.ok()?;
-        let data = cfg.address_data().await.ok()?;
-        let address = String::try_from(data.first()?.get("address")?.try_clone().ok()?).ok()?;
-        let mut url = Url::new();
-        url.push_str("http://").ok()?;
-        url.push_str(&address).ok()?;
-        Some(url)
+        url_of(&self.conn, active).await
     }
 
     async fn wireless(&self) -> zbus::Result<WirelessProxy<'static>> {

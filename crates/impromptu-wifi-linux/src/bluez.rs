@@ -380,7 +380,32 @@ impl Advertisement {
     fn discoverable(&self) -> bool {
         true
     }
+
+    /// The system's Bluetooth name. The advertisement is full with the
+    /// service UUID and service data, so BlueZ sends the name in the scan
+    /// response, where clients such as `impromptu-wifi discover` show it.
+    #[zbus(property)]
+    fn includes(&self) -> Vec<String> {
+        vec!["local-name".into()]
+    }
+
+    /// Advertise every 100 to 150 ms. BlueZ's default, about 1.28 s, made
+    /// a 5-second scan miss a Raspberry Pi Zero W one time in three: its
+    /// Wi-Fi shares the radio and keeps scanning while offline. Read by
+    /// BlueZ 5.55 and later, ignored by older versions.
+    #[zbus(property)]
+    fn min_interval(&self) -> u32 {
+        ADVERTISING_INTERVAL_MS.0
+    }
+
+    #[zbus(property)]
+    fn max_interval(&self) -> u32 {
+        ADVERTISING_INTERVAL_MS.1
+    }
 }
+
+/// Advertising interval, minimum and maximum, in milliseconds.
+const ADVERTISING_INTERVAL_MS: (u32, u32) = (100, 150);
 
 /// Object paths of one exported application.
 #[derive(Clone)]
@@ -549,6 +574,12 @@ impl BluezGatt {
             characteristic.value_changed(iface.signal_emitter()).await?;
         }
         Ok(())
+    }
+
+    /// Stop advertising, and keep the service registered for clients that
+    /// are already connected. [`stop`](Self::stop) removes the rest.
+    pub async fn stop_advertising(&mut self) {
+        self.unregister_advertisement().await;
     }
 
     async fn unregister_advertisement(&mut self) {

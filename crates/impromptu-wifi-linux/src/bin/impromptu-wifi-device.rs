@@ -15,10 +15,10 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use clap::Parser;
 use impromptu_wifi_ble::BleLink;
-use impromptu_wifi_core::{Driver, NoAuth, NotifyOnJoin};
+use impromptu_wifi_core::{Driver, EventSource, NoAuth, NotifyOnJoin};
 use impromptu_wifi_linux::bluez::{Adapter, BluezGatt};
 use impromptu_wifi_linux::join::{join_channel, JoinSender};
-use impromptu_wifi_linux::nm::{NmRadio, NmWifi};
+use impromptu_wifi_linux::nm::{NmOnline, NmRadio, NmWifi};
 use impromptu_wifi_linux::{hostname::LinuxDevice, serial};
 use impromptu_wifi_serial::SerialLink;
 
@@ -122,7 +122,7 @@ async fn serve(args: Args) -> Result<std::convert::Infallible> {
             let radio = NmRadio::new(&bus)
                 .await
                 .context("watching the Wi-Fi radio switch")?;
-            serve_serial(&path, args.baud, wifi, device, radio, joined).await
+            serve_serial(&bus, &path, args.baud, wifi, device, radio, joined).await
         }
         None => match ble {
             Some(task) => task.await.context("Bluetooth task")?,
@@ -132,6 +132,7 @@ async fn serve(args: Args) -> Result<std::convert::Infallible> {
 }
 
 async fn serve_serial(
+    bus: &zbus::Connection,
     path: &str,
     baud: u32,
     mut wifi: NmWifi,
@@ -152,6 +153,9 @@ async fn serve_serial(
         log::info!("serving Improv on {path}");
 
         let online = wifi.online_url().await;
+        let mut nm_online = NmOnline::new(bus, online.is_some())
+            .await
+            .context("watching NetworkManager's state")?;
         let mut events = joined.subscribe();
         let notifying = NotifyOnJoin::new(&mut wifi, joined.notifier());
         let mut driver = Driver::new(SerialLink::new(port), notifying, &mut device, false);
@@ -160,10 +164,14 @@ async fn serve_serial(
         }
         // While the radio is off, serial clients see the Stopped state.
         driver.machine_mut().set_available(radio.enabled());
-        // `run_with` only returns when the link fails. Radio changes and
-        // joins made over Bluetooth both reach the serial client.
+        // `run_with` only returns when the link fails. Radio changes, the
+        // machine going on or offline, and joins made over Bluetooth all
+        // reach the serial client.
         let Err(e) = driver
-            .run_with(&mut NoAuth, &mut (&mut radio, &mut events))
+            .run_with(
+                &mut NoAuth,
+                &mut (&mut radio, (&mut nm_online, &mut events)),
+            )
             .await;
         log::warn!("serial link ended: {e:?}; reopening");
         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -180,10 +188,14 @@ async fn serve_ble(
         .await
         .context("finding a Bluetooth adapter")?;
     let caps = impromptu_wifi_ble::capabilities::<NmWifi, LinuxDevice>();
+    // Assume online: if the machine is offline, the first event says so.
+    let mut online = NmOnline::new(&bus, true)
+        .await
+        .context("watching NetworkManager's state")?;
     loop {
         // Only offer provisioning while offline.
-        while wifi.online_url().await.is_some() {
-            tokio::time::sleep(Duration::from_secs(15)).await;
+        while online.online() {
+            online.next().await;
         }
         log::info!(
             "offline: offering Improv over Bluetooth on {}",
@@ -192,26 +204,33 @@ async fn serve_ble(
         let gatt = BluezGatt::start(&bus, &adapter, caps)
             .await
             .context("registering the Improv service")?;
-        let mut events = joined.subscribe();
+        let mut joins = joined.subscribe();
         let notifying = NotifyOnJoin::new(&mut wifi, joined.notifier());
         let mut driver = Driver::new(BleLink::new(gatt, caps), notifying, &mut device, false);
-        // Returns once provisioned over Bluetooth, or once a serial client
-        // provisioned the machine: either way Bluetooth should stop.
-        match driver.provision_with(&mut NoAuth, &mut events).await {
+        // Returns once the machine is online: provisioned over Bluetooth,
+        // by a serial client, or by NetworkManager rejoining a saved
+        // network (at boot, say). Either way Bluetooth should stop.
+        let outcome = driver
+            .provision_with(&mut NoAuth, &mut (&mut joins, &mut online))
+            .await;
+        // Stop advertising at once, so no new client finds a machine that is
+        // online. The service stays up a little longer: a connected client
+        // reads the full result after being notified, from the exported
+        // characteristics.
+        let mut gatt = driver.into_parts().0.into_inner();
+        gatt.stop_advertising().await;
+        match outcome {
             Ok(url) => {
                 log::info!(
-                    "provisioned{}",
+                    "online{}",
                     url.map(|u| format!("; reachable at {u}"))
                         .unwrap_or_default()
                 );
-                // Keep the service up briefly: the client reads the full
-                // result after being notified.
                 tokio::time::sleep(Duration::from_secs(5)).await;
             }
             Err(e) => log::warn!("Bluetooth session ended: {e}"),
         }
-        // Unregister the service and stop advertising.
-        driver.into_parts().0.into_inner().stop().await;
+        gatt.stop().await;
         log::info!("stopped offering Improv over Bluetooth");
     }
 }

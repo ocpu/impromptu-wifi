@@ -893,3 +893,63 @@ async fn a_join_on_one_transport_is_reported_on_the_other() {
         Some("http://192.168.1.50")
     );
 }
+
+/// Change the stand-in NetworkManager's global state and announce it.
+async fn set_nm_state(world: &Shared, svc: &Connection, state: u32) {
+    world.lock().unwrap().nm_state = state;
+    let root = svc
+        .object_server()
+        .interface::<_, Root>("/org/freedesktop/NetworkManager")
+        .await
+        .unwrap();
+    root.get()
+        .await
+        .state_changed(root.signal_emitter())
+        .await
+        .unwrap();
+}
+
+/// The next event, within five seconds.
+async fn next_event(
+    o: &mut impromptu_wifi_linux::nm::NmOnline,
+) -> impromptu_wifi_linux::DeviceEvent {
+    use impromptu_wifi_linux::EventSource;
+    tokio::time::timeout(Duration::from_secs(5), o.next())
+        .await
+        .expect("an event within 5 s")
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn going_online_and_offline_is_reported() {
+    use impromptu_wifi_linux::nm::NmOnline;
+    use impromptu_wifi_linux::{DeviceEvent, EventSource};
+
+    let bus = private_bus().await;
+    let (world, svc) = services(&bus, home_world()).await;
+    let conn = connect(&bus).await;
+    // Offline, as assumed: nothing to report yet.
+    let mut online = NmOnline::new(&conn, false).await.unwrap();
+    assert!(!online.online());
+    assert!(
+        tokio::time::timeout(Duration::from_millis(200), online.next())
+            .await
+            .is_err()
+    );
+
+    // NetworkManager rejoins a saved network on its own (at boot, say).
+    set_nm_state(&world, &svc, 70).await; // connected (global)
+    assert!(matches!(
+        next_event(&mut online).await,
+        DeviceEvent::Provisioned(_)
+    ));
+    assert!(online.online());
+
+    // From one online state to another isn't news.
+    set_nm_state(&world, &svc, 60).await; // connected (site)
+    set_nm_state(&world, &svc, 20).await; // disconnected
+    assert_eq!(next_event(&mut online).await, DeviceEvent::Unprovisioned);
+
+    // Assuming online while offline reports the truth at once.
+    let mut assumed = NmOnline::new(&conn, true).await.unwrap();
+    assert_eq!(next_event(&mut assumed).await, DeviceEvent::Unprovisioned);
+}
