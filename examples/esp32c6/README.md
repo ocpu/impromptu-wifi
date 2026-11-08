@@ -63,7 +63,13 @@ Specification, Vol 3, Part G, 7), built by
 `impromptu_wifi::embassy::trouble::add_gap_and_gatt`. A client that checks
 it on connecting discovers the services again when a firmware update
 changes the layout. Clients that don't check it can still use a stale
-layout.
+layout. Home Assistant is one: with an ESPHome Bluetooth proxy, its
+`bleak_esphome` library (4.1.0) keeps each device's layout in memory and
+reuses it without reading the hash. After flashing firmware with a
+different GATT layout, restart Home Assistant before provisioning through
+it; otherwise it fails with "Failed to connect" ("Write not permitted" in
+the log). Tested on an ESP32-S3, 2026-11-08: after the restart, the proxy
+returned the new layout and provisioning succeeded.
 
 ## Status LED
 
