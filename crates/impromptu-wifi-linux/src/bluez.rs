@@ -1,74 +1,163 @@
-//! Improv over Bluetooth LE through BlueZ, using `bluer`.
+//! Improv Wi-Fi over Bluetooth LE through BlueZ, using zbus.
 //!
-//! [`BluezGatt::start`] registers the Improv GATT service and implements
-//! [`GattServer`] for [`BleLink`](impromptu_wifi_ble::BleLink). Dropping it
-//! unregisters the service and stops advertising.
+//! [`BluezGatt::start`] exports the Improv Wi-Fi GATT service as a BlueZ
+//! GATT application and implements [`GattServer`] for
+//! [`BleLink`](impromptu_wifi_ble::BleLink). This module talks to BlueZ's
+//! D-Bus API directly, so it needs no C library (no libdbus). It is written
+//! against the BlueZ D-Bus API documentation (`doc/org.bluez.GattManager.rst`,
+//! `org.bluez.GattService.rst`, `org.bluez.GattCharacteristic.rst`,
+//! `org.bluez.LEAdvertisingManager.rst` and `org.bluez.LEAdvertisement.rst`
+//! in the BlueZ source tree).
 //!
-//! * **Reads** honour the offset BlueZ passes for long reads: an RPC result
-//!   can be 258 bytes, more than one packet, and BlueZ fetches the rest with
-//!   increasing offsets. Ignoring the offset would hand the client the start
-//!   of the value repeatedly.
-//! * **Notifications** carry the whole value; BlueZ cuts them to the MTU,
-//!   and clients read the full RPC result after being notified.
+//! * **Objects:** one `org.freedesktop.DBus.ObjectManager` at the
+//!   application root, one `org.bluez.GattService1` below it and one
+//!   `org.bluez.GattCharacteristic1` per Improv Wi-Fi characteristic. The
+//!   application is registered with `org.bluez.GattManager1` on the adapter.
+//! * **Reads** honour the `offset` option BlueZ passes for long reads: an
+//!   RPC result can be 258 bytes, more than one packet, and BlueZ fetches
+//!   the rest with increasing offsets.
+//! * **Notifications** are `PropertiesChanged` signals for the
+//!   characteristic's `Value`, sent while BlueZ has called `StartNotify`.
+//!   They carry the whole value; BlueZ cuts them to the MTU, and clients
+//!   read the full RPC result after being notified.
 //! * **Advertising** carries the service UUID and the service data, which
 //!   together fill a legacy 31-byte advertisement exactly, so the device
 //!   name isn't included. The spec requires both in the same advertisement
-//!   rather than the scan response. Each state change re-registers the
-//!   advertisement with fresh service data.
-//! * One client at a time, as Improv intends: a new subscriber replaces the
-//!   previous one's notifications. A client that disconnects mid-command
-//!   can leave a partial frame, which the next client sees as one invalid
-//!   command before things recover.
+//!   rather than the scan response. Each state change registers a new
+//!   `org.bluez.LEAdvertisement1` with fresh service data.
+//! * **One client at a time**, as Improv Wi-Fi intends. A client that
+//!   disconnects mid-command can leave a partial frame, which the next
+//!   client sees as one invalid command before things recover.
+//!
+//! [`BluezGatt::stop`] unregisters the application and the advertisement.
+//! Dropping a `BluezGatt` without calling `stop` starts the same clean-up
+//! on the current tokio runtime. BlueZ also removes both when the D-Bus
+//! connection that registered them closes.
 //!
 //! Needs BlueZ (`bluetoothd`) and permission to use it over D-Bus: root, or
 //! a user in the `bluetooth` group on most distributions.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::HashMap;
 use std::fmt;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
-use bluer::adv::{Advertisement, AdvertisementHandle, Type};
-use bluer::gatt::local::{
-    Application, ApplicationHandle, Characteristic, CharacteristicNotifier, CharacteristicNotify,
-    CharacteristicNotifyMethod, CharacteristicRead, CharacteristicWrite, CharacteristicWriteMethod,
-    ReqError, Service,
-};
-use bluer::{Adapter, Uuid};
-use futures::FutureExt;
 use impromptu_wifi_ble::GattServer;
 use impromptu_wifi_core::proto::ble::{
     Capabilities, CAPABILITIES_UUID, CURRENT_STATE_UUID, ERROR_STATE_UUID, RPC_COMMAND_UUID,
     RPC_RESULT_UUID, SERVICE_DATA_UUID, SERVICE_UUID,
 };
 use tokio::sync::mpsc;
+use zbus::fdo::{ObjectManager, ObjectManagerProxy, PropertiesProxy};
+use zbus::zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Value};
+use zbus::{interface, Connection};
+
+/// The well-known bus name of `bluetoothd`.
+pub const BLUEZ_SERVICE: &str = "org.bluez";
+
+const ADAPTER_IFACE: &str = "org.bluez.Adapter1";
+const GATT_MANAGER_IFACE: &str = "org.bluez.GattManager1";
+const ADVERTISING_MANAGER_IFACE: &str = "org.bluez.LEAdvertisingManager1";
+
+/// Root of the objects this process exports. Each [`BluezGatt`] gets its
+/// own numbered subtree, so a new one can start while an old one is still
+/// being cleaned up.
+const ROOT: &str = "/io/github/impromptu_wifi";
 
 /// Why the BlueZ side failed.
 #[derive(Debug)]
 pub enum BluezError {
-    /// BlueZ refused or failed an operation.
-    Bluer(bluer::Error),
-    /// The GATT application was unregistered underneath us.
+    /// A D-Bus call failed, or BlueZ refused it.
+    Dbus(zbus::Error),
+    /// BlueZ has no adapter that supports GATT applications and LE
+    /// advertising.
+    NoAdapter,
+    /// The GATT application was removed underneath us.
     Closed,
 }
 
 impl fmt::Display for BluezError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Bluer(e) => write!(f, "BlueZ: {e}"),
-            Self::Closed => f.write_str("the Improv GATT service was unregistered"),
+            Self::Dbus(e) => write!(f, "BlueZ: {e}"),
+            Self::NoAdapter => f.write_str("no Bluetooth LE adapter found"),
+            Self::Closed => f.write_str("the Improv Wi-Fi GATT service was unregistered"),
         }
     }
 }
 
-impl std::error::Error for BluezError {}
-
-impl From<bluer::Error> for BluezError {
-    fn from(e: bluer::Error) -> Self {
-        Self::Bluer(e)
+impl std::error::Error for BluezError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Dbus(e) => Some(e),
+            _ => None,
+        }
     }
 }
 
-/// Current characteristic values, for reads.
+impl From<zbus::Error> for BluezError {
+    fn from(e: zbus::Error) -> Self {
+        Self::Dbus(e)
+    }
+}
+
+impl From<zbus::fdo::Error> for BluezError {
+    fn from(e: zbus::fdo::Error) -> Self {
+        Self::Dbus(e.into())
+    }
+}
+
+/// A BlueZ adapter, such as `hci0`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Adapter {
+    path: OwnedObjectPath,
+}
+
+impl Adapter {
+    /// The first adapter, by object path, that supports GATT applications
+    /// and LE advertising.
+    pub async fn first(bus: &Connection) -> Result<Self, BluezError> {
+        let manager = ObjectManagerProxy::builder(bus)
+            .destination(BLUEZ_SERVICE)?
+            .path("/")?
+            .build()
+            .await?;
+        let objects = manager.get_managed_objects().await?;
+        let mut adapters: Vec<_> = objects
+            .into_iter()
+            .filter(|(_, ifaces)| {
+                [ADAPTER_IFACE, GATT_MANAGER_IFACE, ADVERTISING_MANAGER_IFACE]
+                    .iter()
+                    .all(|i| ifaces.keys().any(|k| k.as_str() == *i))
+            })
+            .map(|(path, _)| path)
+            .collect();
+        adapters.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+        adapters
+            .into_iter()
+            .next()
+            .map(|path| Self { path })
+            .ok_or(BluezError::NoAdapter)
+    }
+
+    /// The adapter with this object path, for example `/org/bluez/hci0`.
+    /// Not checked until it is used.
+    pub fn at(path: OwnedObjectPath) -> Self {
+        Self { path }
+    }
+
+    /// The object path, for example `/org/bluez/hci0`.
+    pub fn path(&self) -> &ObjectPath<'_> {
+        &self.path
+    }
+
+    /// The last path element, for example `hci0`.
+    pub fn name(&self) -> &str {
+        self.path.as_str().rsplit('/').next().unwrap_or_default()
+    }
+}
+
+/// Current characteristic values, shared by the exported objects.
 #[derive(Default)]
 struct Values {
     state: u8,
@@ -76,149 +165,467 @@ struct Values {
     result: Vec<u8>,
 }
 
-/// Where a subscriber's notifier is kept, per characteristic.
-type Slot = Arc<tokio::sync::Mutex<Option<CharacteristicNotifier>>>;
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    State,
+    Error,
+    RpcCommand,
+    RpcResult,
+    Capabilities,
+}
 
-/// The Improv GATT service on one BlueZ adapter.
-pub struct BluezGatt {
-    adapter: Adapter,
-    values: Arc<Mutex<Values>>,
-    writes: mpsc::Receiver<Vec<u8>>,
-    state_slot: Slot,
-    error_slot: Slot,
-    result_slot: Slot,
-    advertisement: Option<AdvertisementHandle>,
-    _app: ApplicationHandle,
+impl Kind {
+    const ALL: [Kind; 5] = [
+        Kind::State,
+        Kind::Error,
+        Kind::RpcCommand,
+        Kind::RpcResult,
+        Kind::Capabilities,
+    ];
+
+    fn uuid(self) -> u128 {
+        match self {
+            Kind::State => CURRENT_STATE_UUID,
+            Kind::Error => ERROR_STATE_UUID,
+            Kind::RpcCommand => RPC_COMMAND_UUID,
+            Kind::RpcResult => RPC_RESULT_UUID,
+            Kind::Capabilities => CAPABILITIES_UUID,
+        }
+    }
+
+    fn flags(self) -> &'static [&'static str] {
+        match self {
+            Kind::State | Kind::Error | Kind::RpcResult => &["read", "notify"],
+            Kind::RpcCommand => &["write", "write-without-response"],
+            Kind::Capabilities => &["read"],
+        }
+    }
+
+    fn notifies(self) -> bool {
+        self.flags().contains(&"notify")
+    }
+}
+
+/// Errors returned to BlueZ, named as the GATT API documents them.
+#[derive(Debug, zbus::DBusError)]
+#[zbus(prefix = "org.bluez.Error")]
+enum GattError {
+    #[zbus(error)]
+    ZBus(zbus::Error),
+    Failed(String),
+    InvalidOffset(String),
+    NotSupported(String),
+}
+
+/// The 128-bit UUID in the textual form BlueZ uses.
+pub(crate) fn uuid_string(uuid: u128) -> String {
+    let h = format!("{uuid:032x}");
+    format!(
+        "{}-{}-{}-{}-{}",
+        &h[0..8],
+        &h[8..12],
+        &h[12..16],
+        &h[16..20],
+        &h[20..32]
+    )
 }
 
 /// The part of `value` a read at `offset` returns.
-pub(crate) fn read_at(value: &[u8], offset: u16) -> Result<Vec<u8>, ReqError> {
-    value
-        .get(usize::from(offset)..)
-        .map(<[u8]>::to_vec)
-        .ok_or(ReqError::InvalidOffset)
+pub(crate) fn read_at(value: &[u8], offset: u16) -> Option<Vec<u8>> {
+    value.get(usize::from(offset)..).map(<[u8]>::to_vec)
 }
 
-fn readable(values: &Arc<Mutex<Values>>, get: fn(&Values) -> Vec<u8>) -> CharacteristicRead {
-    let values = values.clone();
-    CharacteristicRead {
-        read: true,
-        fun: Box::new(move |req| {
-            let value = get(&values.lock().unwrap());
-            async move { read_at(&value, req.offset) }.boxed()
-        }),
-        ..Default::default()
+/// The `offset` option of `ReadValue`, 0 if absent.
+fn offset(options: &HashMap<String, OwnedValue>) -> Result<u16, GattError> {
+    match options.get("offset") {
+        None => Ok(0),
+        Some(v) => v
+            .downcast_ref::<u16>()
+            .map_err(|_| GattError::Failed("offset is not a uint16".into())),
     }
 }
 
-fn notifying(slot: &Slot) -> CharacteristicNotify {
-    let slot = slot.clone();
-    CharacteristicNotify {
-        notify: true,
-        method: CharacteristicNotifyMethod::Fun(Box::new(move |notifier| {
-            let slot = slot.clone();
-            async move {
-                *slot.lock().await = Some(notifier);
-            }
-            .boxed()
-        })),
-        ..Default::default()
+struct Service {
+    uuid: String,
+}
+
+#[interface(name = "org.bluez.GattService1")]
+impl Service {
+    #[zbus(property, name = "UUID")]
+    fn uuid(&self) -> String {
+        self.uuid.clone()
+    }
+
+    #[zbus(property)]
+    fn primary(&self) -> bool {
+        true
     }
 }
 
-async fn notify(slot: &Slot, value: Vec<u8>) {
-    let mut guard = slot.lock().await;
-    if let Some(n) = guard.as_mut() {
-        if n.notify(value).await.is_err() {
-            // The client unsubscribed or disconnected.
-            *guard = None;
+struct Characteristic {
+    kind: Kind,
+    service: OwnedObjectPath,
+    values: Arc<Mutex<Values>>,
+    caps: u8,
+    /// Set on the RPC command characteristic only.
+    writes: Option<mpsc::Sender<Vec<u8>>>,
+    notifying: bool,
+}
+
+impl Characteristic {
+    fn current(&self) -> Vec<u8> {
+        let v = self.values.lock().unwrap();
+        match self.kind {
+            Kind::State => vec![v.state],
+            Kind::Error => vec![v.error],
+            Kind::RpcResult => v.result.clone(),
+            Kind::Capabilities => vec![self.caps],
+            Kind::RpcCommand => Vec::new(),
         }
     }
 }
 
+#[interface(name = "org.bluez.GattCharacteristic1")]
+impl Characteristic {
+    async fn read_value(&self, options: HashMap<String, OwnedValue>) -> Result<Vec<u8>, GattError> {
+        if self.kind == Kind::RpcCommand {
+            return Err(GattError::NotSupported("write-only".into()));
+        }
+        read_at(&self.current(), offset(&options)?)
+            .ok_or_else(|| GattError::InvalidOffset("past the end of the value".into()))
+    }
+
+    async fn write_value(
+        &self,
+        value: Vec<u8>,
+        _options: HashMap<String, OwnedValue>,
+    ) -> Result<(), GattError> {
+        let Some(tx) = &self.writes else {
+            return Err(GattError::NotSupported("read-only".into()));
+        };
+        // Chunks arrive in order (long writes too), so they can go straight
+        // to the driver's reassembly.
+        tx.send(value)
+            .await
+            .map_err(|_| GattError::Failed("the Improv Wi-Fi driver stopped".into()))
+    }
+
+    async fn start_notify(&mut self) -> Result<(), GattError> {
+        if !self.kind.notifies() {
+            return Err(GattError::NotSupported("no notifications".into()));
+        }
+        self.notifying = true;
+        Ok(())
+    }
+
+    async fn stop_notify(&mut self) {
+        self.notifying = false;
+    }
+
+    #[zbus(property, name = "UUID")]
+    fn uuid(&self) -> String {
+        uuid_string(self.kind.uuid())
+    }
+
+    #[zbus(property)]
+    fn service(&self) -> OwnedObjectPath {
+        self.service.clone()
+    }
+
+    #[zbus(property)]
+    fn flags(&self) -> Vec<String> {
+        self.kind.flags().iter().map(|f| f.to_string()).collect()
+    }
+
+    #[zbus(property)]
+    fn value(&self) -> Vec<u8> {
+        self.current()
+    }
+
+    #[zbus(property)]
+    fn notifying(&self) -> bool {
+        self.notifying
+    }
+}
+
+struct Advertisement {
+    data: [u8; 6],
+}
+
+#[interface(name = "org.bluez.LEAdvertisement1")]
+impl Advertisement {
+    /// BlueZ dropped the advertisement; the next state change registers a
+    /// new one.
+    fn release(&self) {}
+
+    #[zbus(property, name = "Type")]
+    fn kind(&self) -> String {
+        "peripheral".into()
+    }
+
+    #[zbus(property, name = "ServiceUUIDs")]
+    fn service_uuids(&self) -> Vec<String> {
+        vec![uuid_string(SERVICE_UUID)]
+    }
+
+    #[zbus(property)]
+    fn service_data(&self) -> HashMap<String, OwnedValue> {
+        let data = Value::from(self.data.to_vec())
+            .try_to_owned()
+            .expect("a byte array holds no file descriptors");
+        HashMap::from([(uuid_string(SERVICE_DATA_UUID), data)])
+    }
+
+    #[zbus(property)]
+    fn discoverable(&self) -> bool {
+        true
+    }
+}
+
+/// Object paths of one exported application.
+#[derive(Clone)]
+struct Paths {
+    app: OwnedObjectPath,
+    service: OwnedObjectPath,
+    characteristics: Vec<(Kind, OwnedObjectPath)>,
+}
+
+impl Paths {
+    fn new(instance: u32) -> Self {
+        let app = format!("{ROOT}/app{instance}");
+        let service = format!("{app}/service0");
+        let characteristics = Kind::ALL
+            .iter()
+            .enumerate()
+            .map(|(i, k)| (*k, path(&format!("{service}/char{i}"))))
+            .collect();
+        Self {
+            app: path(&app),
+            service: path(&service),
+            characteristics,
+        }
+    }
+
+    fn characteristic(&self, kind: Kind) -> &OwnedObjectPath {
+        &self
+            .characteristics
+            .iter()
+            .find(|(k, _)| *k == kind)
+            .expect("every kind has a path")
+            .1
+    }
+}
+
+fn path(p: &str) -> OwnedObjectPath {
+    OwnedObjectPath::try_from(p).expect("constant object paths are valid")
+}
+
+/// No options: the GATT and advertising APIs define none we need.
+fn no_options() -> HashMap<&'static str, Value<'static>> {
+    HashMap::new()
+}
+
+/// The Improv Wi-Fi GATT service on one BlueZ adapter.
+pub struct BluezGatt {
+    bus: Connection,
+    adapter: Adapter,
+    paths: Paths,
+    values: Arc<Mutex<Values>>,
+    writes: mpsc::Receiver<Vec<u8>>,
+    advertisement: Option<OwnedObjectPath>,
+    next_advertisement: u32,
+    stopped: bool,
+}
+
 impl BluezGatt {
-    /// Power on `adapter` and register the Improv service with `caps` (see
-    /// [`impromptu_wifi_ble::capabilities`]). Advertising starts with the driver's
-    /// first state update.
-    pub async fn start(adapter: &Adapter, caps: Capabilities) -> Result<Self, BluezError> {
-        adapter.set_powered(true).await?;
+    /// Power on `adapter` and register the Improv Wi-Fi service with `caps`
+    /// (see [`impromptu_wifi_ble::capabilities`]) on the system bus `bus`.
+    /// Advertising starts with the driver's first state update.
+    pub async fn start(
+        bus: &Connection,
+        adapter: &Adapter,
+        caps: Capabilities,
+    ) -> Result<Self, BluezError> {
+        static NEXT: AtomicU32 = AtomicU32::new(0);
+        let paths = Paths::new(NEXT.fetch_add(1, Ordering::Relaxed));
+
+        PropertiesProxy::builder(bus)
+            .destination(BLUEZ_SERVICE)?
+            .path(adapter.path().clone())?
+            .build()
+            .await?
+            .set(
+                ADAPTER_IFACE.try_into().expect("valid interface name"),
+                "Powered",
+                Value::from(true),
+            )
+            .await?;
 
         let values = Arc::new(Mutex::new(Values::default()));
         let (tx, writes) = mpsc::channel::<Vec<u8>>(16);
-        let (state_slot, error_slot, result_slot) =
-            (Slot::default(), Slot::default(), Slot::default());
-
-        let rpc_command = Characteristic {
-            uuid: Uuid::from_u128(RPC_COMMAND_UUID),
-            write: Some(CharacteristicWrite {
-                write: true,
-                write_without_response: true,
-                method: CharacteristicWriteMethod::Fun(Box::new(move |value, _req| {
-                    // Chunks arrive in order (long writes too), so they can go
-                    // straight to the driver's reassembly.
-                    let tx = tx.clone();
-                    async move { tx.send(value).await.map_err(|_| ReqError::Failed) }.boxed()
-                })),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-        let caps_bits = caps.bits();
-        let service = Service {
-            uuid: Uuid::from_u128(SERVICE_UUID),
-            primary: true,
-            characteristics: vec![
-                Characteristic {
-                    uuid: Uuid::from_u128(CURRENT_STATE_UUID),
-                    read: Some(readable(&values, |v| vec![v.state])),
-                    notify: Some(notifying(&state_slot)),
-                    ..Default::default()
+        let server = bus.object_server();
+        server.at(&paths.app, ObjectManager).await?;
+        server
+            .at(
+                &paths.service,
+                Service {
+                    uuid: uuid_string(SERVICE_UUID),
                 },
-                Characteristic {
-                    uuid: Uuid::from_u128(ERROR_STATE_UUID),
-                    read: Some(readable(&values, |v| vec![v.error])),
-                    notify: Some(notifying(&error_slot)),
-                    ..Default::default()
-                },
-                rpc_command,
-                Characteristic {
-                    uuid: Uuid::from_u128(RPC_RESULT_UUID),
-                    read: Some(readable(&values, |v| v.result.clone())),
-                    notify: Some(notifying(&result_slot)),
-                    ..Default::default()
-                },
-                Characteristic {
-                    uuid: Uuid::from_u128(CAPABILITIES_UUID),
-                    read: Some(CharacteristicRead {
-                        read: true,
-                        fun: Box::new(move |req| {
-                            async move { read_at(&[caps_bits], req.offset) }.boxed()
-                        }),
-                        ..Default::default()
-                    }),
-                    ..Default::default()
-                },
-            ],
-            ..Default::default()
-        };
-        let app = adapter
-            .serve_gatt_application(Application {
-                services: vec![service],
-                ..Default::default()
-            })
+            )
             .await?;
+        for (kind, p) in &paths.characteristics {
+            let characteristic = Characteristic {
+                kind: *kind,
+                service: paths.service.clone(),
+                values: values.clone(),
+                caps: caps.bits(),
+                writes: (*kind == Kind::RpcCommand).then(|| tx.clone()),
+                notifying: false,
+            };
+            server.at(p, characteristic).await?;
+        }
+        drop(tx);
 
-        Ok(Self {
+        let mut gatt = Self {
+            bus: bus.clone(),
             adapter: adapter.clone(),
+            paths,
             values,
             writes,
-            state_slot,
-            error_slot,
-            result_slot,
             advertisement: None,
-            _app: app,
-        })
+            next_advertisement: 0,
+            stopped: false,
+        };
+        // BlueZ reads the objects back with GetManagedObjects before it
+        // replies; the object server answers that while this call waits.
+        let registered = gatt
+            .bus
+            .call_method(
+                Some(BLUEZ_SERVICE),
+                adapter.path(),
+                Some(GATT_MANAGER_IFACE),
+                "RegisterApplication",
+                &(&gatt.paths.app, no_options()),
+            )
+            .await;
+        if let Err(e) = registered {
+            gatt.remove_objects().await;
+            gatt.stopped = true;
+            return Err(e.into());
+        }
+        Ok(gatt)
     }
+
+    /// The adapter this service is registered on.
+    pub fn adapter(&self) -> &Adapter {
+        &self.adapter
+    }
+
+    /// Unregister the advertisement and the GATT application, and remove the
+    /// exported objects.
+    pub async fn stop(mut self) {
+        self.stopped = true;
+        cleanup(
+            self.bus.clone(),
+            self.adapter.clone(),
+            self.paths.clone(),
+            self.advertisement.take(),
+        )
+        .await;
+    }
+
+    async fn remove_objects(&self) {
+        remove_objects(&self.bus, &self.paths).await;
+    }
+
+    async fn notify(&self, kind: Kind) -> Result<(), BluezError> {
+        let iface = self
+            .bus
+            .object_server()
+            .interface::<_, Characteristic>(self.paths.characteristic(kind))
+            .await?;
+        let characteristic = iface.get().await;
+        if characteristic.notifying {
+            characteristic.value_changed(iface.signal_emitter()).await?;
+        }
+        Ok(())
+    }
+
+    async fn unregister_advertisement(&mut self) {
+        if let Some(p) = self.advertisement.take() {
+            unregister_advertisement(&self.bus, &self.adapter, &p).await;
+        }
+    }
+}
+
+impl Drop for BluezGatt {
+    fn drop(&mut self) {
+        if self.stopped {
+            return;
+        }
+        let task = cleanup(
+            self.bus.clone(),
+            self.adapter.clone(),
+            self.paths.clone(),
+            self.advertisement.take(),
+        );
+        match tokio::runtime::Handle::try_current() {
+            Ok(rt) => {
+                rt.spawn(task);
+            }
+            // BlueZ still removes both once this connection closes.
+            Err(_) => log::warn!("BluezGatt dropped outside a tokio runtime; not unregistered"),
+        }
+    }
+}
+
+async fn cleanup(
+    bus: Connection,
+    adapter: Adapter,
+    paths: Paths,
+    advertisement: Option<OwnedObjectPath>,
+) {
+    if let Some(p) = advertisement {
+        unregister_advertisement(&bus, &adapter, &p).await;
+    }
+    if let Err(e) = bus
+        .call_method(
+            Some(BLUEZ_SERVICE),
+            adapter.path(),
+            Some(GATT_MANAGER_IFACE),
+            "UnregisterApplication",
+            &(&paths.app,),
+        )
+        .await
+    {
+        log::warn!("unregistering the Improv Wi-Fi GATT application: {e}");
+    }
+    remove_objects(&bus, &paths).await;
+}
+
+async fn remove_objects(bus: &Connection, paths: &Paths) {
+    let server = bus.object_server();
+    for (_, p) in &paths.characteristics {
+        let _ = server.remove::<Characteristic, _>(p).await;
+    }
+    let _ = server.remove::<Service, _>(&paths.service).await;
+    let _ = server.remove::<ObjectManager, _>(&paths.app).await;
+}
+
+async fn unregister_advertisement(bus: &Connection, adapter: &Adapter, p: &OwnedObjectPath) {
+    if let Err(e) = bus
+        .call_method(
+            Some(BLUEZ_SERVICE),
+            adapter.path(),
+            Some(ADVERTISING_MANAGER_IFACE),
+            "UnregisterAdvertisement",
+            &(p,),
+        )
+        .await
+    {
+        log::debug!("unregistering advertisement {p}: {e}");
+    }
+    let _ = bus.object_server().remove::<Advertisement, _>(p).await;
 }
 
 impl GattServer for BluezGatt {
@@ -233,37 +640,54 @@ impl GattServer for BluezGatt {
 
     async fn set_state(&mut self, value: u8) -> Result<(), BluezError> {
         self.values.lock().unwrap().state = value;
-        notify(&self.state_slot, vec![value]).await;
-        Ok(())
+        self.notify(Kind::State).await
     }
 
     async fn set_error(&mut self, value: u8) -> Result<(), BluezError> {
         self.values.lock().unwrap().error = value;
-        notify(&self.error_slot, vec![value]).await;
-        Ok(())
+        self.notify(Kind::Error).await
     }
 
     async fn set_rpc_result(&mut self, value: &[u8]) -> Result<(), BluezError> {
         self.values.lock().unwrap().result = value.to_vec();
-        notify(&self.result_slot, value.to_vec()).await;
-        Ok(())
+        self.notify(Kind::RpcResult).await
     }
 
     async fn set_service_data(&mut self, data: [u8; 6]) -> Result<(), BluezError> {
         // Release the old advertisement first: adapters allow only a few.
-        self.advertisement = None;
-        let advertisement = Advertisement {
-            advertisement_type: Type::Peripheral,
-            service_uuids: BTreeSet::from([Uuid::from_u128(SERVICE_UUID)]),
-            service_data: BTreeMap::from([(Uuid::from_u128(SERVICE_DATA_UUID), data.to_vec())]),
-            discoverable: Some(true),
-            ..Default::default()
-        };
-        match self.adapter.advertise(advertisement).await {
-            Ok(handle) => self.advertisement = Some(handle),
+        self.unregister_advertisement().await;
+        let p = path(&format!(
+            "{}/advertisement{}",
+            self.paths.app.as_str(),
+            self.next_advertisement
+        ));
+        self.next_advertisement += 1;
+        self.bus
+            .object_server()
+            .at(&p, Advertisement { data })
+            .await?;
+        let registered = self
+            .bus
+            .call_method(
+                Some(BLUEZ_SERVICE),
+                self.adapter.path(),
+                Some(ADVERTISING_MANAGER_IFACE),
+                "RegisterAdvertisement",
+                &(&p, no_options()),
+            )
+            .await;
+        match registered {
+            Ok(_) => self.advertisement = Some(p),
             // Provisioning still works for a client that's already connected,
             // so a failed advertisement shouldn't end the session.
-            Err(e) => log::warn!("advertising failed: {e}"),
+            Err(e) => {
+                log::warn!("advertising failed: {e}");
+                let _ = self
+                    .bus
+                    .object_server()
+                    .remove::<Advertisement, _>(&p)
+                    .await;
+            }
         }
         Ok(())
     }
@@ -283,6 +707,18 @@ mod tests {
             Vec::<u8>::new(),
             "reading at the end is empty, not an error"
         );
-        assert!(matches!(read_at(&value, 257), Err(ReqError::InvalidOffset)));
+        assert_eq!(read_at(&value, 257), None);
+    }
+
+    #[test]
+    fn uuids_use_the_bluez_text_form() {
+        assert_eq!(
+            uuid_string(SERVICE_UUID),
+            "00467768-6228-2272-4663-277478268000"
+        );
+        assert_eq!(
+            uuid_string(SERVICE_DATA_UUID),
+            "00004677-0000-1000-8000-00805f9b34fb"
+        );
     }
 }

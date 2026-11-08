@@ -30,7 +30,6 @@ allow = [
     "Apache-2.0",
     "Unicode-3.0",   # unicode-ident
     "0BSD",          # managed, smoltcp
-    "BSD-2-Clause",  # bluer
     "MPL-2.0",       # serialport (file-level copyleft; used unmodified)
 ]
 

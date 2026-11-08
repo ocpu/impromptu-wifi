@@ -52,7 +52,7 @@ linux-networkmanager = ["linux", "impromptu-wifi-linux/networkmanager"]
 linux-hostnamed = ["linux", "impromptu-wifi-linux/hostnamed"]
 ## Serial ports through tokio-serial (`linux::serial`).
 linux-serial = ["linux", "impromptu-wifi-linux/serial"]
-## Bluetooth LE peripheral through BlueZ (`linux::bluez`). Needs libdbus.
+## Bluetooth LE peripheral through BlueZ's D-Bus API (`linux::bluez`).
 linux-bluez = ["linux", "impromptu-wifi-linux/bluez"]
 
 ## defmt formatting for every enabled no_std layer.
@@ -76,7 +76,7 @@ impromptu-wifi-ble = { workspace = true, optional = true }
 impromptu-wifi-embassy = { workspace = true, optional = true }
 # Not inherited from the workspace: an inherited dependency cannot turn
 # default features off before edition 2024, and these defaults pull in
-# libdbus. Keep the versions in step with [workspace.dependencies].
+# native libraries (libdbus through btleplug, libudev through serialport). Keep the versions in step with [workspace.dependencies].
 impromptu-wifi-host = { path = "../impromptu-wifi-host", version = "0.1.0", optional = true, default-features = false }
 impromptu-wifi-linux = { path = "../impromptu-wifi-linux", version = "0.1.0", optional = true, default-features = false }
 

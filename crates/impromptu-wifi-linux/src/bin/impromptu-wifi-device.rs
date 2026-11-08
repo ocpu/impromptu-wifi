@@ -16,7 +16,8 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use impromptu_wifi_ble::BleLink;
 use impromptu_wifi_core::{Driver, NoAuth};
-use impromptu_wifi_linux::{bluez::BluezGatt, hostname::LinuxDevice, nm::NmWifi, serial};
+use impromptu_wifi_linux::bluez::{Adapter, BluezGatt};
+use impromptu_wifi_linux::{hostname::LinuxDevice, nm::NmWifi, serial};
 use impromptu_wifi_serial::SerialLink;
 
 #[derive(Parser)]
@@ -106,7 +107,7 @@ async fn serve(args: Args) -> Result<std::convert::Infallible> {
     // Each transport owns clones of the backends.
     let ble = args
         .ble
-        .then(|| tokio::spawn(serve_ble(wifi.clone(), device.clone())));
+        .then(|| tokio::spawn(serve_ble(bus.clone(), wifi.clone(), device.clone())));
     match args.serial {
         Some(path) => serve_serial(&path, args.baud, wifi, device).await,
         None => match ble {
@@ -146,10 +147,12 @@ async fn serve_serial(
     }
 }
 
-async fn serve_ble(mut wifi: NmWifi, mut device: LinuxDevice) -> Result<std::convert::Infallible> {
-    let session = bluer::Session::new().await.context("connecting to BlueZ")?;
-    let adapter = session
-        .default_adapter()
+async fn serve_ble(
+    bus: zbus::Connection,
+    mut wifi: NmWifi,
+    mut device: LinuxDevice,
+) -> Result<std::convert::Infallible> {
+    let adapter = Adapter::first(&bus)
         .await
         .context("finding a Bluetooth adapter")?;
     let caps = impromptu_wifi_ble::capabilities::<NmWifi, LinuxDevice>();
@@ -162,7 +165,7 @@ async fn serve_ble(mut wifi: NmWifi, mut device: LinuxDevice) -> Result<std::con
             "offline: offering Improv over Bluetooth on {}",
             adapter.name()
         );
-        let gatt = BluezGatt::start(&adapter, caps)
+        let gatt = BluezGatt::start(&bus, &adapter, caps)
             .await
             .context("registering the Improv service")?;
         let mut driver = Driver::new(BleLink::new(gatt, caps), &mut wifi, &mut device, false);
@@ -179,7 +182,8 @@ async fn serve_ble(mut wifi: NmWifi, mut device: LinuxDevice) -> Result<std::con
             }
             Err(e) => log::warn!("Bluetooth session ended: {e}"),
         }
-        drop(driver); // unregisters the service and stops advertising
+        // Unregister the service and stop advertising.
+        driver.into_parts().0.into_inner().stop().await;
         log::info!("stopped offering Improv over Bluetooth");
     }
 }

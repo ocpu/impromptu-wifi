@@ -17,8 +17,8 @@ networkmanager = ["dep:zbus", "dep:futures"]
 hostnamed = ["dep:zbus"]
 ## Serial ports (UART, USB gadget) through tokio-serial.
 serial = ["dep:tokio-serial", "dep:embedded-io-adapters"]
-## Bluetooth LE through BlueZ (needs libdbus at build time).
-bluez = ["dep:bluer", "dep:futures"]
+## Bluetooth LE through BlueZ's D-Bus API.
+bluez = ["dep:zbus"]
 ## The impromptu-wifi-device daemon binary.
 daemon = [
     "networkmanager", "hostnamed", "serial", "bluez",
@@ -37,14 +37,19 @@ zbus = { version = "5.19", optional = true, default-features = false, features =
 futures = { version = "0.3.34", optional = true }
 tokio-serial = { version = "5.5", optional = true }
 embedded-io-adapters = { version = "0.7", optional = true, features = ["tokio-1"] }
-bluer = { version = "0.17.4", optional = true, features = ["bluetoothd"] }
 anyhow = { version = "1.0.104", optional = true }
 clap = { version = "4.6.7", optional = true, features = ["derive"] }
 
 [dev-dependencies]
 impromptu-wifi-client.workspace = true
+futures = "0.3.34"
+serde = "1"
 tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "time", "process", "io-util", "sync"] }
 
 [[bin]]
 name = "impromptu-wifi-device"
 required-features = ["daemon"]
+
+[[test]]
+name = "bluez"
+required-features = ["bluez"]

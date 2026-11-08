@@ -2,8 +2,8 @@
 
 `impromptu-wifi-device` serves Improv on a serial port, over Bluetooth LE, or
 both, with NetworkManager for Wi-Fi and systemd-hostnamed for the hostname
-and device name. Building needs `libdbus-1-dev`, `libudev-dev` and
-`pkg-config`.
+and device name. Building needs `libudev-dev` and `pkg-config` (for the
+serial port); Bluetooth goes through BlueZ's D-Bus API and needs no C library.
 
 ```sh
 cargo build --release -p impromptu-wifi-linux --features daemon
