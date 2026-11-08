@@ -115,6 +115,11 @@ async fn run(cli: Cli) -> Result<()> {
 
     if let Some(path) = &cli.port {
         let mut port = serial::open(path, cli.baud).with_context(|| format!("opening {path}"))?;
+        // USB-Serial-JTAG devices keep output sent while the port was closed;
+        // without this the first answer can be an old state.
+        serial::discard_pending(&mut port)
+            .await
+            .with_context(|| format!("reading {path}"))?;
         if cli.reset {
             serial::hard_reset(&mut port)
                 .await

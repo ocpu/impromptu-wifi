@@ -21,7 +21,7 @@ ble = ["dep:futures", "dep:zbus", "dep:serde", "dep:btleplug", "dep:uuid"]
 impromptu-wifi-client.workspace = true
 impromptu-wifi-serial.workspace = true
 impromptu-wifi-ble.workspace = true
-tokio = { version = "1.54", features = ["time"] }
+tokio = { version = "1.54", features = ["time", "io-util"] }
 tokio-serial = { version = "5.5", optional = true }
 embedded-io-adapters = { version = "0.7", optional = true, features = ["tokio-1"] }
 futures = { version = "0.3.34", optional = true }
