@@ -1,12 +1,15 @@
 [Unit]
 Description=Improv Wi-Fi provisioning
 Documentation=https://www.improv-wifi.com
-After=NetworkManager.service systemd-hostnamed.service bluetooth.service
-Wants=NetworkManager.service
+# Ordering only: `Wants=NetworkManager.service` would start NetworkManager on
+# systems that use dhcpcd and wpa_supplicant instead, and Debian's unit for it
+# declares Conflicts=dhcpcd.service.
+After=NetworkManager.service dhcpcd.service wpa_supplicant.service systemd-hostnamed.service bluetooth.service
 
 [Service]
 # Choose transports: --serial /dev/ttyGS0 (USB gadget mode) or /dev/serial0
-# (UART), --ble, or both.
+# (UART), --ble, or both. Without NetworkManager, the user must be in the
+# group of wpa_supplicant's ctrl_interface (netdev on Debian).
 ExecStart=/usr/local/bin/impromptu-wifi-device --serial /dev/ttyGS0
 User=impromptu-wifi
 Group=dialout

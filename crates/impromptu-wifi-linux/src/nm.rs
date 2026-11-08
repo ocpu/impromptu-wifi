@@ -80,7 +80,12 @@ trait Device {
     fn device_type(&self) -> zbus::Result<u32>;
     #[zbus(property)]
     fn interface(&self) -> zbus::Result<String>;
+    #[zbus(property)]
+    fn state(&self) -> zbus::Result<u32>;
 }
+
+/// `NM_DEVICE_STATE_ACTIVATED`.
+const NM_DEVICE_STATE_ACTIVATED: u32 = 100;
 
 #[proxy(
     interface = "org.freedesktop.NetworkManager.Device.Wireless",
@@ -278,8 +283,7 @@ async fn url_of(conn: &Connection, active: &OwnedObjectPath) -> Option<Url> {
     Some(url)
 }
 
-/// Whether NetworkManager has the machine online, followed through its
-/// global `State` property, as an [`EventSource`].
+/// Whether NetworkManager has the machine online, as an [`EventSource`].
 ///
 /// Reports [`DeviceEvent::Provisioned`] when the machine comes online,
 /// however that happened (NetworkManager rejoining a saved network at boot,
@@ -288,18 +292,25 @@ async fn url_of(conn: &Connection, active: &OwnedObjectPath) -> Option<Url> {
 /// from `provision_with` on the first; a serial driver reports both to its
 /// client.
 ///
-/// "Online" is NetworkManager's `CONNECTED_LOCAL` or better. Interfaces
-/// NetworkManager doesn't manage don't count.
+/// [`new`](Self::new) follows NetworkManager's global `State`: online is
+/// `CONNECTED_LOCAL` or better, through any interface it manages, Ethernet
+/// included. [`wifi_only`](Self::wifi_only) follows one Wi-Fi device:
+/// online is that device `ACTIVATED`.
 pub struct NmOnline {
     conn: Connection,
-    proxy: NetworkManagerProxy<'static>,
+    state: Watched,
     changes: zbus::proxy::PropertyStream<'static, u32>,
     reported: bool,
 }
 
+enum Watched {
+    Global(NetworkManagerProxy<'static>),
+    Device(DeviceProxy<'static>),
+}
+
 impl NmOnline {
-    /// Start following NetworkManager's state. The first event is the
-    /// current state, if it differs from `assume_online`.
+    /// Follow NetworkManager's global state. The first event is the current
+    /// state, if it differs from `assume_online`.
     pub async fn new(conn: &Connection, assume_online: bool) -> Result<Self, NmError> {
         let proxy = NetworkManagerProxy::builder(conn)
             .cache_properties(CacheProperties::Yes)
@@ -308,7 +319,28 @@ impl NmOnline {
         let changes = proxy.receive_state_changed().await;
         Ok(Self {
             conn: conn.clone(),
-            proxy,
+            state: Watched::Global(proxy),
+            changes,
+            reported: assume_online,
+        })
+    }
+
+    /// Follow `wifi`'s device only, so a machine online through Ethernet
+    /// counts as offline until its Wi-Fi is connected.
+    pub async fn wifi_only(
+        conn: &Connection,
+        wifi: &NmWifi,
+        assume_online: bool,
+    ) -> Result<Self, NmError> {
+        let proxy = DeviceProxy::builder(conn)
+            .path(wifi.device.clone())?
+            .cache_properties(CacheProperties::Yes)
+            .build()
+            .await?;
+        let changes = proxy.receive_state_changed().await;
+        Ok(Self {
+            conn: conn.clone(),
+            state: Watched::Device(proxy),
             changes,
             reported: assume_online,
         })
@@ -316,11 +348,23 @@ impl NmOnline {
 
     /// Whether the machine is online, as last known.
     pub fn online(&self) -> bool {
-        self.proxy
-            .cached_state()
-            .ok()
-            .flatten()
-            .map_or(self.reported, |s| s >= NM_STATE_CONNECTED_LOCAL)
+        match &self.state {
+            Watched::Global(p) => p
+                .cached_state()
+                .ok()
+                .flatten()
+                .map_or(self.reported, |s| s >= NM_STATE_CONNECTED_LOCAL),
+            Watched::Device(p) => p
+                .cached_state()
+                .ok()
+                .flatten()
+                .map_or(self.reported, |s| s == NM_DEVICE_STATE_ACTIVATED),
+        }
+    }
+
+    /// `http://<address>` of NetworkManager's primary connection, if any.
+    pub async fn url(&self) -> Option<Url> {
+        primary_url(&self.conn).await
     }
 }
 

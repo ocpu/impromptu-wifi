@@ -4,6 +4,8 @@
 //! * [`nm::NmWifi`] (feature `networkmanager`): Wi-Fi through
 //!   NetworkManager, implementing [`WifiConnect`], [`WifiScanner`] and
 //!   [`NetworkStatus`].
+//! * [`wpa::WpaWifi`] (feature `wpa-supplicant`): Wi-Fi through
+//!   wpa_supplicant's control socket, for systems without NetworkManager.
 //! * [`hostname::LinuxDevice`] (feature `hostnamed`): device info, hostname
 //!   and device name through systemd-hostnamed.
 //! * [`serial`] (feature `serial`): UARTs and USB gadget ports.
@@ -25,6 +27,8 @@ pub mod join;
 pub mod nm;
 #[cfg(feature = "serial")]
 pub mod serial;
+#[cfg(feature = "wpa-supplicant")]
+pub mod wpa;
 
 pub use impromptu_wifi_ble::{BleLink, GattServer};
 pub use impromptu_wifi_core::traits::*;
