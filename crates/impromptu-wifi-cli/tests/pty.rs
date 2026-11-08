@@ -3,6 +3,9 @@
 //! argument parsing, opening the port with `serialport`, the TTY layer,
 //! passphrase input, exit codes and error messages.
 
+// Pseudo-terminals are a Unix facility.
+#![cfg(unix)]
+
 use std::io::Write as _;
 use std::os::fd::OwnedFd;
 use std::process::{Command, Output, Stdio};

@@ -1,11 +1,5 @@
-//! Bluetooth LE through `btleplug`.
-//!
-//! [`discover`] lists nearby Improv devices with their state and
-//! capabilities, read from their advertisements without connecting.
-//! [`BtleGattClient`] connects to one and implements [`GattClient`] for
-//! [`BleClientLink`](impromptu_wifi_ble::BleClientLink).
+//! Bluetooth LE through `btleplug`, for systems other than Linux.
 
-use std::fmt;
 use std::pin::Pin;
 use std::time::Duration;
 
@@ -17,14 +11,14 @@ use btleplug::platform::{Adapter, Manager, Peripheral};
 use futures::{Stream, StreamExt};
 use impromptu_wifi_ble::{GattClient, Notification};
 use impromptu_wifi_client::proto::ble::{
-    parse_service_data, Capabilities, CAPABILITIES_UUID, CURRENT_STATE_UUID, ERROR_STATE_UUID,
-    RPC_COMMAND_UUID, RPC_RESULT_UUID, SERVICE_DATA_UUID, SERVICE_UUID,
+    parse_service_data, CAPABILITIES_UUID, CURRENT_STATE_UUID, ERROR_STATE_UUID, RPC_COMMAND_UUID,
+    RPC_RESULT_UUID, SERVICE_DATA_UUID, SERVICE_UUID,
 };
-use impromptu_wifi_client::proto::State;
 use uuid::Uuid;
 
-pub use btleplug::platform::{Adapter as BleAdapter, Peripheral as BlePeripheral};
+use super::{sort_by_signal, BleError, Discovered};
 
+pub use btleplug::platform::{Adapter as BleAdapter, Peripheral as BlePeripheral};
 const SERVICE: Uuid = Uuid::from_u128(SERVICE_UUID);
 const SERVICE_DATA: Uuid = Uuid::from_u128(SERVICE_DATA_UUID);
 const STATE: Uuid = Uuid::from_u128(CURRENT_STATE_UUID);
@@ -32,34 +26,6 @@ const ERROR: Uuid = Uuid::from_u128(ERROR_STATE_UUID);
 const RPC_COMMAND: Uuid = Uuid::from_u128(RPC_COMMAND_UUID);
 const RPC_RESULT: Uuid = Uuid::from_u128(RPC_RESULT_UUID);
 const CAPABILITIES: Uuid = Uuid::from_u128(CAPABILITIES_UUID);
-
-/// Why a BLE operation failed.
-#[derive(Debug)]
-pub enum BleError {
-    /// The platform BLE stack failed.
-    Btle(btleplug::Error),
-    /// The system has no Bluetooth adapter.
-    NoAdapter,
-    /// The peripheral lacks this Improv characteristic.
-    MissingCharacteristic(&'static str),
-    /// The notification stream ended (the device disconnected).
-    Disconnected,
-}
-
-impl fmt::Display for BleError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Btle(e) => write!(f, "Bluetooth error: {e}"),
-            Self::NoAdapter => f.write_str("no Bluetooth adapter found"),
-            Self::MissingCharacteristic(c) => write!(f, "device has no Improv {c} characteristic"),
-            Self::Disconnected => f.write_str("device disconnected"),
-        }
-    }
-}
-
-// No `source()`: the message already includes btleplug's, whose own text
-// repeats its cause, so exposing it again would print it a third time.
-impl std::error::Error for BleError {}
 
 impl From<btleplug::Error> for BleError {
     fn from(e: btleplug::Error) -> Self {
@@ -76,35 +42,6 @@ pub async fn first_adapter() -> Result<Adapter, BleError> {
         .into_iter()
         .next()
         .ok_or(BleError::NoAdapter)
-}
-
-/// An Improv device seen while scanning.
-#[derive(Debug, Clone)]
-pub struct Discovered {
-    /// The device, for [`BtleGattClient::connect`].
-    pub peripheral: Peripheral,
-    /// Its address, or an opaque identifier on macOS.
-    pub address: String,
-    /// Its advertised name, if any.
-    pub name: Option<String>,
-    /// Signal strength of the last advertisement, in dBm.
-    pub rssi: Option<i16>,
-    /// State from the advertised service data (spec 2.0 and later).
-    pub state: Option<State>,
-    /// Capabilities from the advertised service data.
-    pub capabilities: Option<Capabilities>,
-}
-
-impl Discovered {
-    /// Whether `query` names this device: its address (case-insensitive) or
-    /// part of its name.
-    pub fn matches(&self, query: &str) -> bool {
-        self.address.eq_ignore_ascii_case(query)
-            || self
-                .name
-                .as_deref()
-                .is_some_and(|n| n.to_lowercase().contains(&query.to_lowercase()))
-    }
 }
 
 /// Scan for `duration` and return the Improv devices seen, strongest first.
@@ -143,9 +80,9 @@ pub async fn find(
 }
 
 fn improv_wifi_filter() -> ScanFilter {
-    let mut filter = ScanFilter::default();
-    filter.services = vec![SERVICE];
-    filter
+    ScanFilter {
+        services: vec![SERVICE],
+    }
 }
 
 /// The Improv devices the adapter has seen so far, strongest first.
@@ -169,7 +106,7 @@ async fn seen(adapter: &Adapter) -> Result<Vec<Discovered>, BleError> {
             peripheral,
         });
     }
-    found.sort_by_key(|d| std::cmp::Reverse(d.rssi.unwrap_or(i16::MIN)));
+    sort_by_signal(&mut found);
     Ok(found)
 }
 
@@ -178,7 +115,7 @@ async fn seen(adapter: &Adapter) -> Result<Vec<Discovered>, BleError> {
 /// Writes are 20-byte chunks with response. `btleplug` doesn't expose the
 /// negotiated MTU, and a longer write would make BlueZ fall back to a
 /// prepared ("long") write, which not every device supports.
-pub struct BtleGattClient {
+pub struct BleGattClient {
     peripheral: Peripheral,
     state: Characteristic,
     rpc_command: Characteristic,
@@ -187,7 +124,7 @@ pub struct BtleGattClient {
     notifications: Pin<Box<dyn Stream<Item = ValueNotification> + Send>>,
 }
 
-impl BtleGattClient {
+impl BleGattClient {
     /// Connect (if not already connected), find the Improv characteristics
     /// and subscribe to their notifications.
     pub async fn connect(peripheral: Peripheral) -> Result<Self, BleError> {
@@ -237,12 +174,12 @@ impl BtleGattClient {
 
 /// Read a one-byte characteristic. A free function on purpose: borrowing the
 /// whole client across the await would make the future require
-/// `BtleGattClient: Sync`, which the notification stream isn't.
+/// `BleGattClient: Sync`, which the notification stream isn't.
 async fn read_byte(peripheral: &Peripheral, c: &Characteristic) -> Result<u8, BleError> {
     Ok(peripheral.read(c).await?.first().copied().unwrap_or(0))
 }
 
-impl GattClient for BtleGattClient {
+impl GattClient for BleGattClient {
     type Error = BleError;
 
     async fn write_rpc_command(&mut self, chunk: &[u8]) -> Result<(), BleError> {

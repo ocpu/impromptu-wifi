@@ -132,7 +132,7 @@ async fn run(cli: Cli) -> Result<()> {
             .ok_or_else(|| {
                 anyhow!("no Improv device matching {query:?} found; try `impromptu-wifi discover`")
             })?;
-        let gatt = ble::BtleGattClient::connect(device.peripheral).await?;
+        let gatt = ble::BleGattClient::connect(device.peripheral).await?;
         let mut client = Client::new(BleClientLink::new(gatt));
         let result = execute(&mut client, &cli, password).await;
         // Disconnect explicitly: many devices stop advertising while

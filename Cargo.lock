@@ -1351,10 +1351,13 @@ dependencies = [
  "impromptu-wifi-ble",
  "impromptu-wifi-client",
  "impromptu-wifi-core",
+ "impromptu-wifi-linux",
  "impromptu-wifi-serial",
+ "serde",
  "tokio",
  "tokio-serial",
  "uuid",
+ "zbus",
 ]
 
 [[package]]

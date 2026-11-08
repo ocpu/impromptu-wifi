@@ -41,7 +41,7 @@ esp = ["embassy-net", "impromptu-wifi-embassy/esp"]
 host = ["dep:impromptu-wifi-host", "client", "serial", "ble"]
 ## Serial ports through tokio-serial (`host::serial`).
 host-serial = ["host", "impromptu-wifi-host/serial"]
-## Bluetooth LE through btleplug (`host::ble`). Needs libdbus on Linux.
+## Bluetooth LE (`host::ble`): BlueZ over D-Bus on Linux, btleplug elsewhere.
 host-ble = ["host", "impromptu-wifi-host/ble"]
 
 ## Device side on Linux, tokio-based (module `linux`).
@@ -76,7 +76,8 @@ impromptu-wifi-ble = { workspace = true, optional = true }
 impromptu-wifi-embassy = { workspace = true, optional = true }
 # Not inherited from the workspace: an inherited dependency cannot turn
 # default features off before edition 2024, and these defaults pull in
-# native libraries (libdbus through btleplug, libudev through serialport). Keep the versions in step with [workspace.dependencies].
+# serial support, which needs libudev on Linux. Keep the versions in step
+# with [workspace.dependencies].
 impromptu-wifi-host = { path = "../impromptu-wifi-host", version = "0.1.0", optional = true, default-features = false }
 impromptu-wifi-linux = { path = "../impromptu-wifi-linux", version = "0.1.0", optional = true, default-features = false }
 

@@ -1,7 +1,7 @@
 //! The Improv Wi-Fi client side on desktop operating systems, for tools
-//! that provision devices: serial ports through `tokio-serial` and
-//! Bluetooth LE through `btleplug` (BlueZ on Linux, CoreBluetooth on macOS,
-//! WinRT on Windows).
+//! that provision devices: serial ports through `tokio-serial`, and
+//! Bluetooth LE through BlueZ's D-Bus API on Linux (zbus, no C library) or
+//! `btleplug` elsewhere (CoreBluetooth on macOS, WinRT on Windows).
 //!
 //! Both produce links for [`impromptu_wifi_client::Client`]:
 //!
@@ -12,7 +12,7 @@
 //! // BLE
 //! let adapter = impromptu_wifi_host::ble::first_adapter().await?;
 //! let devices = impromptu_wifi_host::ble::discover(&adapter, Duration::from_secs(5)).await?;
-//! let gatt = impromptu_wifi_host::ble::BtleGattClient::connect(devices[0].peripheral.clone()).await?;
+//! let gatt = impromptu_wifi_host::ble::BleGattClient::connect(devices[0].peripheral.clone()).await?;
 //! let mut client = Client::new(BleClientLink::new(gatt));
 //! ```
 //!

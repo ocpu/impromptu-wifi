@@ -8,7 +8,7 @@ use impromptu_wifi_core::proto::ble::Capabilities;
 use impromptu_wifi_core::{
     unsupported, ConnectError, DeviceInfoSource, Driver, NoAuth, Url, WifiConnect,
 };
-use impromptu_wifi_host::ble::BtleGattClient;
+use impromptu_wifi_host::ble::BleGattClient;
 use impromptu_wifi_host::serial::Port;
 use impromptu_wifi_host::{BleClientLink, Client, SerialClientLink};
 use impromptu_wifi_serial::SerialLink;
@@ -18,7 +18,7 @@ fn assert_send<T: Send>(_: &T) {}
 #[allow(dead_code)]
 fn client_futures(
     serial: &mut Client<SerialClientLink<Port>>,
-    ble: &mut Client<BleClientLink<BtleGattClient>>,
+    ble: &mut Client<BleClientLink<BleGattClient>>,
 ) {
     assert_send(&serial.provision("ssid", "password"));
     assert_send(&serial.scan::<8>());

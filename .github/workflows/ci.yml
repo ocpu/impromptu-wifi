@@ -46,7 +46,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libdbus-1-dev libudev-dev pkg-config
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libudev-dev pkg-config
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master 2026-10-16
         with:
           toolchain: ${{ env.RUST_STABLE }}
@@ -60,9 +60,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # dbus-daemon is preinstalled on the runner; impromptu-wifi-linux/tests/dbus.rs
-      # starts a private instance.
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libdbus-1-dev libudev-dev pkg-config
+      # dbus-daemon is preinstalled on the runner; the D-Bus tests in
+      # impromptu-wifi-linux and impromptu-wifi-host start a private instance.
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libudev-dev pkg-config
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master 2026-10-16
         with:
           toolchain: ${{ env.RUST_STABLE }}
@@ -72,6 +72,23 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --locked --workspace --no-deps --features "$HOST_FEATURES"
+
+  other-os:
+    # The host BLE client uses btleplug instead of BlueZ on these systems.
+    name: host crates (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master 2026-10-16
+        with:
+          toolchain: ${{ env.RUST_STABLE }}
+          components: clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: cargo clippy --locked -p impromptu-wifi-host -p impromptu-wifi-cli --all-targets -- -D warnings
 
   no-std:
     name: no_std (${{ matrix.target }})
@@ -145,7 +162,7 @@ jobs:
               --features impromptu-wifi-embassy/trouble,impromptu-wifi-embassy/trouble-central,impromptu-wifi-embassy/usb,impromptu-wifi-embassy/embassy-net,impromptu-wifi-linux/daemon,impromptu-wifi/embassy-trouble,impromptu-wifi/embassy-trouble-central,impromptu-wifi/embassy-usb,impromptu-wifi/embassy-net,impromptu-wifi/host-serial,impromptu-wifi/host-ble,impromptu-wifi/linux-networkmanager,impromptu-wifi/linux-hostnamed,impromptu-wifi/linux-serial,impromptu-wifi/linux-bluez
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libdbus-1-dev libudev-dev pkg-config
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libudev-dev pkg-config
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master 2026-10-16
         with:
           toolchain: ${{ matrix.rust }}

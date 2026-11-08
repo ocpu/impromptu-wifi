@@ -1,6 +1,6 @@
 [package]
 name = "impromptu-wifi-host"
-description = "Improv Wi-Fi client side for desktop operating systems: serial via tokio-serial, BLE via btleplug"
+description = "Improv Wi-Fi client side for desktop operating systems: serial via tokio-serial, BLE via BlueZ (zbus) on Linux and btleplug elsewhere"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -13,8 +13,9 @@ keywords = ["improv", "wifi", "provisioning", "ble", "serial"]
 default = ["serial", "ble"]
 ## Serial ports via tokio-serial.
 serial = ["dep:tokio-serial", "dep:embedded-io-adapters"]
-## Bluetooth LE via btleplug (BlueZ on Linux, CoreBluetooth, WinRT).
-ble = ["dep:btleplug", "dep:uuid", "dep:futures"]
+## Bluetooth LE: BlueZ over D-Bus (zbus) on Linux; btleplug (CoreBluetooth,
+## WinRT) elsewhere.
+ble = ["dep:futures", "dep:zbus", "dep:serde", "dep:btleplug", "dep:uuid"]
 
 [dependencies]
 impromptu-wifi-client.workspace = true
@@ -23,10 +24,26 @@ impromptu-wifi-ble.workspace = true
 tokio = { version = "1.54", features = ["time"] }
 tokio-serial = { version = "5.5", optional = true }
 embedded-io-adapters = { version = "0.7", optional = true, features = ["tokio-1"] }
+futures = { version = "0.3.34", optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = { version = "5.19", optional = true, default-features = false, features = ["tokio"] }
+serde = { version = "1", optional = true }
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
 btleplug = { version = "0.13.5", optional = true }
 uuid = { version = "1", optional = true }
-futures = { version = "0.3.34", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1.54", features = ["rt", "macros", "time", "io-util"] }
 impromptu-wifi-core.workspace = true
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+impromptu-wifi-linux = { workspace = true, features = ["bluez"] }
+futures = "0.3.34"
+serde = "1"
+zbus = { version = "5.19", default-features = false, features = ["tokio"] }
+
+[[test]]
+name = "bluez"
+required-features = ["ble"]

@@ -12,6 +12,8 @@ keywords = ["improv", "wifi", "provisioning", "esphome", "cli"]
 [[bin]]
 name = "impromptu-wifi"
 path = "src/main.rs"
+# Its docs would land in the same directory as the impromptu-wifi library's.
+doc = false
 
 [dependencies]
 impromptu-wifi-host.workspace = true
