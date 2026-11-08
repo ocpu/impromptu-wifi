@@ -167,8 +167,10 @@ pub async fn discover(
 ) -> Result<Vec<Discovered>, BleError> {
     start_scan(adapter).await?;
     tokio::time::sleep(duration).await;
+    // Before stopping: BlueZ clears every RSSI when its discovery ends.
+    let found = seen(adapter).await;
     stop_scan(adapter).await;
-    seen(adapter).await
+    found
 }
 
 /// Scan until a device matching `query` (see [`Discovered::matches`])
@@ -227,7 +229,14 @@ async fn stop_scan(adapter: &BleAdapter) {
     let _ = call(&adapter.conn, &adapter.path, ADAPTER, "StopDiscovery", &()).await;
 }
 
-/// The Improv Wi-Fi devices the adapter knows, strongest first.
+/// The Improv Wi-Fi devices advertising during the current discovery,
+/// strongest first.
+///
+/// BlueZ keeps a device it saw for a while after the device stops
+/// advertising, with its last advertisement data. It sets `RSSI` only for
+/// devices seen during a discovery and removes it when the discovery ends,
+/// so a device without one is a leftover: a provisioned device that stopped
+/// advertising, for example.
 async fn seen(adapter: &BleAdapter) -> Result<Vec<Discovered>, BleError> {
     let service = uuid(SERVICE_UUID);
     let service_data = uuid(SERVICE_DATA_UUID);
@@ -245,11 +254,14 @@ async fn seen(adapter: &BleAdapter) -> Result<Vec<Discovered>, BleError> {
         if !uuids.iter().any(|u| u.eq_ignore_ascii_case(&service)) && data.is_none() {
             continue;
         }
+        let Some(rssi) = prop::<i16>(props, "RSSI") else {
+            continue;
+        };
         let parsed = data.as_deref().and_then(parse_service_data);
         found.push(Discovered {
             address: prop(props, "Address").unwrap_or_else(|| path.to_string()),
             name: prop(props, "Name"),
-            rssi: prop(props, "RSSI"),
+            rssi: Some(rssi),
             state: parsed.map(|(s, _)| s),
             capabilities: parsed.map(|(_, c)| c),
             peripheral: BlePeripheral {
