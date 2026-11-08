@@ -153,8 +153,8 @@ Everything that parses or encodes takes a `Transport`, and the driver formats sc
 
 ## Status
 
-Which devices, operating systems and clients have been tested is in
-[SUPPORT.md](SUPPORT.md). Guides, references, explanations and decision
+Which devices, operating systems and clients have been tested is in the
+[support matrix](docs/reference/support-matrix.md). Guides, references, explanations and decision
 records are indexed in [docs/](docs/README.md).
 
 | Crate | State |
@@ -182,8 +182,17 @@ MSRV is 1.87 (set by `heapless` 0.9), including `impromptu-wifi` without the `em
 
 CI (`.github/workflows/ci.yml`) runs `rustfmt`, `clippy -D warnings`, the tests and rustdoc on Linux; builds the `no_std` crates for `thumbv6m-none-eabi`, `thumbv7em-none-eabihf` and `riscv32imac-unknown-none-elf`; builds `impromptu-wifi-device` statically for the three Raspberry Pi targets; builds and lints the `examples/esp32s3` firmware (with Espressif's Xtensa toolchain, through `esp-rs/xtensa-toolchain`); checks both MSRVs; runs `cargo deny check` (`deny.toml`); and runs `scripts/check-dep-age.py`, which fails if any locked crates.io version was published less than 14 days earlier. The `trouble` and `trouble-central` features do not build for `thumbv6m-none-eabi` (`static_cell` 2.1.1, through `trouble-host`, uses atomic compare-and-swap, which that target lacks). Nothing needs `libudev` or `libdbus`.
 
-To check the ESP32 backend in your own firmware, build your firmware crate with `impromptu-wifi-embassy` features `esp` (plus `trouble` for BLE), your chip's esp-radio feature, and `esp-hal/unstable`, as `examples/esp32s3` does for the ESP32-S3. Before publishing, set `repository` in the workspace `Cargo.toml` and add `LICENSE-MIT` and `LICENSE-APACHE`.
+To check the ESP32 backend in your own firmware, build your firmware crate with `impromptu-wifi-embassy` features `esp` (plus `trouble` for BLE), your chip's esp-radio feature, and `esp-hal/unstable`, as `examples/esp32s3` does for the ESP32-S3.
 
 ## License
 
-MIT OR Apache-2.0.
+Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or
+[MIT license](LICENSE-MIT), at your option.
+
+Unless you explicitly state otherwise, any contribution intentionally
+submitted for inclusion in this work by you, as defined in the Apache-2.0
+license, shall be dual licensed as above, without any additional terms or
+conditions.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute and
+[SECURITY.md](SECURITY.md) to report a vulnerability.

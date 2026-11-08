@@ -2,7 +2,7 @@
 
 Find the cause of a Bluetooth LE (BLE) provisioning problem from its symptom,
 and fix it. Each section comes from a problem seen on real hardware; the
-[support matrix](../../SUPPORT.md) lists the hardware.
+[support matrix](../reference/support-matrix.md) lists the hardware.
 
 ## Before you begin
 

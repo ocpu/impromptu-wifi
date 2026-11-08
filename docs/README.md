@@ -24,7 +24,7 @@ entry point; this page lists the rest by what the reader needs.
 |---|---|
 | [`impromptu-wifi` command-line tool](reference/cli.md) | Commands, options, exit status |
 | [`impromptu-wifi-device` daemon](reference/impromptu-wifi-device.md) | Options, backends, files, systemd unit, logs |
-| [Support matrix](../SUPPORT.md) | Devices, operating systems, clients and build targets, and how far each is verified |
+| [Support matrix](reference/support-matrix.md) | Devices, operating systems, clients and build targets, and how far each is verified |
 | API documentation | `cargo doc --open --features <features>` in the repository; the crate-level documentation of each crate describes its public API |
 
 ## Explanation

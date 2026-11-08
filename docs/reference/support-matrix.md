@@ -20,18 +20,18 @@ Devices that are provisioned: they run the Improv Wi-Fi device side.
 
 | Device | Firmware | Serial | Bluetooth LE | Status |
 |---|---|---|---|---|
-| ESP32-S3 (rev v0.2, 16 MB flash, DevKitC-1-style board) | [`examples/esp32s3`](examples/esp32s3) | USB-Serial-JTAG: Tested | Tested | **Tested**: provisioning over serial and BLE, saved network and rejoin, factory reset, status LED, identify, web page |
+| ESP32-S3 (rev v0.2, 16 MB flash, DevKitC-1-style board) | [`examples/esp32s3`](../../examples/esp32s3) | USB-Serial-JTAG: Tested | Tested | **Tested**: provisioning over serial and BLE, saved network and rejoin, factory reset, status LED, identify, web page |
 | Other ESP32 chips supported by esp-radio 1.0.0-beta.1 | `impromptu-wifi-embassy` feature `esp` in your firmware | - | - | **Untested**. The `esp` backend is only built for the ESP32-S3, through the example |
 | Other `no_std` targets with embassy (nRF52, STM32, RP2040, ESP32-C3/C6) | `impromptu-wifi-embassy` with your Wi-Fi backend | - | - | **Built** for `thumbv6m-none-eabi`, `thumbv7em-none-eabihf` and `riscv32imac-unknown-none-elf`; no firmware example |
 
 ESP32-S3 limits: WPA3-only networks can't be joined (esp-radio 1.0.0-beta.1
 has no WPA3); no hostname; the LED pin and colour order are board-specific.
-See [its README](examples/esp32s3/README.md#limitations).
+See [its README](../../examples/esp32s3/README.md#limitations).
 
 ### Linux machines
 
 With the `impromptu-wifi-device` daemon; setup in
-[`examples/raspberry-pi`](examples/raspberry-pi).
+[`examples/raspberry-pi`](../../examples/raspberry-pi).
 
 | Device | OS | Bluetooth chip | Wi-Fi backend | Provisioned from | Status |
 |---|---|---|---|---|---|
@@ -48,7 +48,7 @@ Serial transports on Linux (USB gadget `/dev/ttyGS0`, GPIO UART) are
 ## Operating systems for the Linux daemon
 
 What each Raspberry Pi OS release needs, all handled by
-[`setup.sh`](examples/raspberry-pi/setup.sh).
+[`setup.sh`](../../examples/raspberry-pi/setup.sh).
 
 | | Raspbian / Raspberry Pi OS 11 (bullseye) | Raspberry Pi OS 12 (bookworm) | Raspberry Pi OS 13 (trixie) |
 |---|---|---|---|
@@ -95,8 +95,8 @@ Tools and apps that provision a device.
 
 | Issue | Affects | Workaround |
 |---|---|---|
-| Connections from one laptop (MediaTek Bluetooth `0e8d:0717`, BlueZ 5.87) to the Pi 4 and Pi 5 drop or time out; a raw ATT client on the same laptop works | Pi 4, Pi 5 (CYW43455) with that client | Provision from another client, such as Home Assistant ([details](examples/raspberry-pi/README.md#known-issue-a-laptops-mediatek-bluetooth-and-the-pi-4-and-5)) |
-| Home Assistant keeps a device's GATT layout in memory and doesn't check the Database Hash | Any device whose layout changes, such as after a firmware update | Restart Home Assistant ([details](examples/esp32s3/README.md#bluetooth-address)) |
+| Connections from one laptop (MediaTek Bluetooth `0e8d:0717`, BlueZ 5.87) to the Pi 4 and Pi 5 drop or time out; a raw ATT client on the same laptop works | Pi 4, Pi 5 (CYW43455) with that client | Provision from another client, such as Home Assistant ([details](../../examples/raspberry-pi/README.md#known-issue-a-laptops-mediatek-bluetooth-and-the-pi-4-and-5)) |
+| Home Assistant keeps a device's GATT layout in memory and doesn't check the Database Hash | Any device whose layout changes, such as after a firmware update | Restart Home Assistant ([details](../../examples/esp32s3/README.md#bluetooth-address)) |
 | A Linux client's BlueZ can keep a stale GATT cache after a device's layout changes | Linux clients | `bluetoothctl remove <address>` on the client |
 | The same laptop's BlueZ 5.87 crashed when a pairing it refused coincided with a device-list request | That BlueZ build | `setup.sh` turns off what triggered the pairing (BLE-MIDI) |
 | WPA3-only networks | ESP32-S3 (esp-radio 1.0.0-beta.1) | Use WPA2 or WPA2/WPA3 transition mode |

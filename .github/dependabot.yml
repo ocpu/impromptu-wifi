@@ -1,0 +1,13 @@
+# GitHub Actions only. Cargo updates are not automated: locked crate versions
+# must be at least 14 days old (scripts/check-dep-age.py), which Dependabot's
+# newest-version proposals would fail.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+    commit-message:
+      prefix: ci

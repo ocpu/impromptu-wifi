@@ -1,0 +1,68 @@
+name: Bug report
+description: Something does not work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Report vulnerabilities privately instead; see SECURITY.md.
+        Remove Wi-Fi passphrases from logs before posting.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: dropdown
+    id: role
+    attributes:
+      label: Component
+      multiple: true
+      options:
+        - impromptu-wifi CLI
+        - impromptu-wifi-device (Linux daemon)
+        - ESP32-S3 example firmware
+        - Raspberry Pi setup.sh
+        - Library crate in own firmware or application
+        - Documentation
+    validations:
+      required: true
+  - type: dropdown
+    id: transport
+    attributes:
+      label: Transport
+      options:
+        - Serial
+        - Bluetooth LE
+        - Both
+        - Not applicable
+    validations:
+      required: true
+  - type: textarea
+    id: device
+    attributes:
+      label: Device
+      description: The device being provisioned. Board and model, OS and version, Wi-Fi backend (NetworkManager or wpa_supplicant), BlueZ version (`bluetoothctl --version`).
+      placeholder: Raspberry Pi 4 Model B, Raspberry Pi OS 12, NetworkManager 1.42.4, BlueZ 5.66
+    validations:
+      required: true
+  - type: textarea
+    id: client
+    attributes:
+      label: Client
+      description: What provisions the device. CLI version and OS, Home Assistant and proxy, ESP Web Tools and browser, or a phone app. For Bluetooth LE on Linux, the BlueZ version.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: impromptu-wifi version or commit
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: CLI output, `journalctl -u impromptu-wifi-device`, or the firmware's serial output.
+      render: text
