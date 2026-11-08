@@ -5,6 +5,8 @@ use core::fmt::Debug;
 
 use impromptu_wifi_client::proto::ble::Capabilities;
 use impromptu_wifi_client::proto::{ErrorCode, State};
+#[cfg(test)]
+use impromptu_wifi_client::ScannedNetwork;
 use impromptu_wifi_client::{ClientError, JoinFailure, LONG_SCAN};
 use impromptu_wifi_traits::NetworkFlags;
 
@@ -72,50 +74,92 @@ pub fn error_message<E: Debug>(e: &ClientError<E>) -> String {
     }
 }
 
-/// A readable message for a failed join to `ssid`.
-pub fn join_failure_message(ssid: &str, f: &JoinFailure<'_>) -> String {
+/// A failed join, split for display: what happened and what to do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JoinFailureView {
+    /// `not-seen`, `open-network`, `passphrase-missing`, `wpa3-only`,
+    /// `rejected` or `unknown`.
+    pub kind: &'static str,
+    /// One line: what happened.
+    pub title: String,
+    /// What to check or change.
+    pub advice: String,
+    /// Signal strength the device saw the network at, if it saw it.
+    pub rssi: Option<i8>,
+    /// A network whose name differs only in case or spaces.
+    pub similar: Option<String>,
+}
+
+/// Describe a failed join to `ssid`.
+pub fn join_failure_view(ssid: &str, f: &JoinFailure<'_>) -> JoinFailureView {
+    const WPA3: &str = "Some devices, including ESP32 firmware built on esp-radio, can\u{2019}t \
+                        join WPA3-only networks; if the passphrase is right, switch the \
+                        network to WPA2/WPA3 or WPA2.";
+    let q = |s: &str| format!("\u{201c}{s}\u{201d}");
+    let view = |kind, title: String, advice: String, rssi| JoinFailureView {
+        kind,
+        title,
+        advice,
+        rssi,
+        similar: None,
+    };
     match f {
-        JoinFailure::NoScan => format!(
-            "The device could not join \"{ssid}\". Check the network name (it is \
-             case-sensitive) and the passphrase. Many devices, including most ESP32 chips, \
-             need a 2.4 GHz network, and some can't join WPA3-only networks."
+        JoinFailure::NoScan => view(
+            "unknown",
+            format!("The device could not join {}", q(ssid)),
+            format!(
+                "Check the network name (it is case-sensitive) and the passphrase. Many \
+                 devices, including most ESP32 chips, need a 2.4 GHz network. {WPA3}"
+            ),
+            None,
         ),
         JoinFailure::NotSeen { similar, scanned } => {
-            let mut m = format!(
-                "The device could not join \"{ssid}\": it can't see that network. Check \
-                 that the name is exact (it is case-sensitive), that the network is in \
-                 range, and that it offers 2.4 GHz: many devices, including most ESP32 \
-                 chips, have no 5 GHz radio."
+            let mut advice = String::from(
+                "Check that the name is exact (it is case-sensitive), that the network is in \
+                 range, and that it offers 2.4 GHz: many devices, including most ESP32 chips, \
+                 have no 5 GHz radio.",
             );
-            if let Some(n) = similar {
-                m.push_str(&format!(" It does see \"{}\": is that the one?", n.ssid));
-            }
             if *scanned >= LONG_SCAN {
-                m.push_str(&format!(
+                advice.push_str(&format!(
                     " The scan listed {scanned} networks; devices often report only their \
                      strongest ones, so a weak network can be missing from it."
                 ));
             }
-            m
+            JoinFailureView {
+                similar: similar.map(|n| n.ssid.as_str().into()),
+                ..view(
+                    "not-seen",
+                    format!("The device can\u{2019}t see {}", q(ssid)),
+                    advice,
+                    None,
+                )
+            }
         }
-        JoinFailure::OpenButPassphraseSent { rssi_dbm } => format!(
-            "The device could not join \"{ssid}\" (seen at {rssi_dbm} dBm). The network \
-             is open, but a passphrase was sent. Tick \u{201c}Open network\u{201d} and try again."
+        JoinFailure::OpenButPassphraseSent { rssi_dbm } => view(
+            "open-network",
+            format!("{} is an open network", q(ssid)),
+            "A passphrase was sent, but the network has none.".into(),
+            Some(*rssi_dbm),
         ),
-        JoinFailure::PassphraseMissing { rssi_dbm } => format!(
-            "The device could not join \"{ssid}\" (seen at {rssi_dbm} dBm). The network \
-             needs a passphrase, and none was sent."
+        JoinFailure::PassphraseMissing { rssi_dbm } => view(
+            "passphrase-missing",
+            format!("{} needs a passphrase", q(ssid)),
+            "None was sent. Enter the network\u{2019}s passphrase.".into(),
+            Some(*rssi_dbm),
         ),
-        JoinFailure::Wpa3Only { rssi_dbm } => format!(
-            "The device could not join \"{ssid}\" (seen at {rssi_dbm} dBm, WPA3 only). \
-             Check the passphrase. Some devices can't join WPA3-only networks; if the \
-             passphrase is right, switch the network to WPA2/WPA3 or WPA2."
+        JoinFailure::Wpa3Only { rssi_dbm } => view(
+            "wpa3-only",
+            format!("{} is WPA3 only", q(ssid)),
+            format!("Check the passphrase. {WPA3}"),
+            Some(*rssi_dbm),
         ),
-        JoinFailure::Rejected { rssi_dbm } => format!(
-            "The device could not join \"{ssid}\" (seen at {rssi_dbm} dBm). Check the \
-             passphrase. If it is right, check the network's security mode: some devices, \
-             including ESP32 firmware built on esp-radio, can't join WPA3-only networks, \
-             so try WPA2/WPA3 or WPA2."
+        JoinFailure::Rejected { rssi_dbm } => view(
+            "rejected",
+            format!("{} didn\u{2019}t accept the device", q(ssid)),
+            format!(
+                "Check the passphrase. If it is right, the security mode may be the cause. {WPA3}"
+            ),
+            Some(*rssi_dbm),
         ),
     }
 }
@@ -124,25 +168,65 @@ pub fn join_failure_message(ssid: &str, f: &JoinFailure<'_>) -> String {
 mod tests {
     use super::*;
 
-    #[test]
-    fn open_network_hint_names_the_checkbox() {
-        let m = join_failure_message(
-            "Cafe",
-            &JoinFailure::OpenButPassphraseSent { rssi_dbm: -50 },
-        );
-        assert!(m.contains("Open network") && !m.contains("--open"), "{m}");
+    fn similar() -> ScannedNetwork {
+        ScannedNetwork {
+            ssid: "garage".try_into().unwrap(),
+            rssi_dbm: -60,
+            requires_passphrase: true,
+            auth: None,
+        }
     }
 
     #[test]
-    fn long_scan_is_mentioned() {
-        let m = join_failure_message(
+    fn join_failures_have_a_kind_title_and_advice() {
+        let open = join_failure_view(
+            "Cafe",
+            &JoinFailure::OpenButPassphraseSent { rssi_dbm: -50 },
+        );
+        assert_eq!(open.kind, "open-network");
+        assert_eq!(open.title, "\u{201c}Cafe\u{201d} is an open network");
+        assert_eq!(open.rssi, Some(-50));
+        assert!(open.advice.contains("has none"), "{}", open.advice);
+
+        let wpa3 = join_failure_view("Lab", &JoinFailure::Wpa3Only { rssi_dbm: -40 });
+        assert_eq!(wpa3.kind, "wpa3-only");
+        assert!(wpa3.advice.contains("WPA2/WPA3"), "{}", wpa3.advice);
+
+        let rejected = join_failure_view("Home", &JoinFailure::Rejected { rssi_dbm: -52 });
+        assert_eq!(rejected.kind, "rejected");
+        assert_eq!(
+            rejected.title,
+            "\u{201c}Home\u{201d} didn\u{2019}t accept the device"
+        );
+
+        assert_eq!(
+            join_failure_view("Home", &JoinFailure::PassphraseMissing { rssi_dbm: -52 }).kind,
+            "passphrase-missing"
+        );
+        assert_eq!(
+            join_failure_view("Home", &JoinFailure::NoScan).kind,
+            "unknown"
+        );
+    }
+
+    #[test]
+    fn a_network_not_seen_offers_the_similar_one() {
+        let n = similar();
+        let v = join_failure_view(
             "Garage",
             &JoinFailure::NotSeen {
-                similar: None,
+                similar: Some(&n),
                 scanned: 16,
             },
         );
-        assert!(m.contains("listed 16 networks"), "{m}");
+        assert_eq!(v.kind, "not-seen");
+        assert_eq!(
+            v.title,
+            "The device can\u{2019}t see \u{201c}Garage\u{201d}"
+        );
+        assert_eq!(v.similar.as_deref(), Some("garage"));
+        assert_eq!(v.rssi, None);
+        assert!(v.advice.contains("listed 16 networks"), "{}", v.advice);
     }
 
     #[test]

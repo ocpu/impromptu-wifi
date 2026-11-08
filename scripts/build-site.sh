@@ -19,7 +19,7 @@ RUSTFLAGS="--cfg=web_sys_unstable_apis" \
 wasm-bindgen --target web --no-typescript --out-dir "$out/pkg" \
   target/wasm32-unknown-unknown/release/impromptu_wifi_web.wasm
 
-cp site/index.html site/style.css site/app.js "$out/"
+cp site/index.html site/style.css site/app.js site/favicon.svg "$out/"
 
 # Documentation: stage docs/ for mdBook (failing on broken links), then build.
 stage="$root/target/site-docs"

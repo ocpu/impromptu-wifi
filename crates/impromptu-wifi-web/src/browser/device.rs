@@ -15,7 +15,8 @@ use super::serial::WebSerialPort;
 use super::time::with_timeout;
 use crate::slot::{Slot, Unavailable};
 use crate::text::{
-    capability_names, error_message, interface_names, join_failure_message, state_label,
+    capability_names, error_message, interface_names, join_failure_view, state_label,
+    JoinFailureView,
 };
 use crate::LinkFailure;
 
@@ -170,7 +171,7 @@ impl Device {
     }
 
     /// The device's state, and on Bluetooth its optional commands.
-    pub async fn state(&self) -> Result<StateReport, JsError> {
+    pub async fn state(&self) -> Result<StateReport, JsValue> {
         self.run(|mut conn| async move {
             let ble = matches!(conn, Conn::Ble(_));
             let result = with_client!(conn, |c| {
@@ -193,7 +194,7 @@ impl Device {
     }
 
     /// Firmware and hardware information.
-    pub async fn info(&self) -> Result<InfoReport, JsError> {
+    pub async fn info(&self) -> Result<InfoReport, JsValue> {
         self.run(|mut conn| async move {
             let result = with_client!(conn, |c| timed(CALL_MS, c.device_info()).await);
             let report = result.map(|i| InfoReport {
@@ -210,7 +211,7 @@ impl Device {
 
     /// The Wi-Fi networks the device can see, strongest first as the device
     /// orders them.
-    pub async fn scan(&self) -> Result<Vec<Network>, JsError> {
+    pub async fn scan(&self) -> Result<Vec<Network>, JsValue> {
         self.run(|mut conn| async move {
             let result = with_client!(conn, |c| timed(CALL_MS, c.scan::<SCAN_CAPACITY>()).await);
             let report = result.map(|networks| {
@@ -234,16 +235,22 @@ impl Device {
     }
 
     /// Send Wi-Fi credentials; resolves to the URL the device reports, if
-    /// any. An empty `passphrase` joins an open network. `progress` is
-    /// called with a line for people at each stage.
+    /// any. An empty `passphrase` joins an open network. `progress(stage)`
+    /// is called with `"authorize"` (press the device's button, up to
+    /// 60 s), `"send"` (credentials sent; joining, up to 60 s) and
+    /// `"diagnose"` (the join failed; scanning to explain why).
+    ///
+    /// A failed join rejects with `kind` set to `not-seen`, `open-network`,
+    /// `passphrase-missing`, `wpa3-only`, `rejected` or `unknown`, plus
+    /// `title`, `advice`, and `rssi` and `similar` where known.
     pub async fn provision(
         &self,
         ssid: String,
         passphrase: String,
         progress: Function,
-    ) -> Result<Option<String>, JsError> {
-        let say = move |m: &str| {
-            let _ = progress.call1(&JsValue::NULL, &JsValue::from_str(m));
+    ) -> Result<Option<String>, JsValue> {
+        let say = move |stage: &str| {
+            let _ = progress.call1(&JsValue::NULL, &JsValue::from_str(stage));
         };
         self.run(|mut conn| async move {
             let result = with_client!(conn, |c| provision(c, &ssid, &passphrase, &say).await);
@@ -254,7 +261,7 @@ impl Device {
 
     /// Make the device show itself, for example by blinking (Bluetooth
     /// only).
-    pub async fn identify(&self) -> Result<(), JsError> {
+    pub async fn identify(&self) -> Result<(), JsValue> {
         self.run(|mut conn| async move {
             let result = with_client!(conn, |c| timed(CALL_MS, c.identify()).await);
             (conn, result)
@@ -264,7 +271,7 @@ impl Device {
 
     /// Read the hostname, or set it when `set` is given; resolves to the
     /// hostname the device reports.
-    pub async fn hostname(&self, set: Option<String>) -> Result<String, JsError> {
+    pub async fn hostname(&self, set: Option<String>) -> Result<String, JsValue> {
         self.run(|mut conn| async move {
             let result = with_client!(conn, |c| match &set {
                 Some(n) => timed(CALL_MS, c.set_hostname(n)).await,
@@ -278,7 +285,7 @@ impl Device {
     /// Read the device name, or set it when `set` is given; resolves to the
     /// name the device reports.
     #[wasm_bindgen(js_name = deviceName)]
-    pub async fn device_name(&self, set: Option<String>) -> Result<String, JsError> {
+    pub async fn device_name(&self, set: Option<String>) -> Result<String, JsValue> {
         self.run(|mut conn| async move {
             let result = with_client!(conn, |c| match &set {
                 Some(n) => timed(CALL_MS, c.set_device_name(n)).await,
@@ -290,7 +297,7 @@ impl Device {
     }
 
     /// Connectivity and URLs (serial only).
-    pub async fn network(&self) -> Result<NetworkReport, JsError> {
+    pub async fn network(&self) -> Result<NetworkReport, JsValue> {
         self.run(|mut conn| async move {
             let result = with_client!(conn, |c| timed(CALL_MS, c.network_state()).await);
             let report = result.map(|n| NetworkReport {
@@ -319,14 +326,14 @@ impl Device {
 impl Device {
     /// Take the connection, run `f`, and put the connection back, unless
     /// the device disconnected.
-    async fn run<T, F, Fut>(&self, f: F) -> Result<T, JsError>
+    async fn run<T, F, Fut>(&self, f: F) -> Result<T, JsValue>
     where
         F: FnOnce(Conn) -> Fut,
         Fut: Future<Output = (Conn, Result<T, Failure>)>,
     {
         let conn = self.conn.take().map_err(|u| match u {
-            Unavailable::Busy => JsError::new("another command is still running"),
-            Unavailable::Gone => JsError::new("the device disconnected"),
+            Unavailable::Busy => js_error("busy", "another command is still running", None),
+            Unavailable::Gone => js_error("disconnected", "the device disconnected", None),
         })?;
         let (conn, result) = f(conn).await;
         let disconnected = matches!(&result, Err(f) if f.disconnected);
@@ -342,11 +349,11 @@ impl Device {
             drop_conn(conn).await;
         }
         result.map_err(|f| {
-            JsError::new(if f.disconnected {
-                "the device disconnected"
+            if f.disconnected {
+                js_error("disconnected", "the device disconnected", None)
             } else {
-                &f.message
-            })
+                js_error(f.kind, &f.message, f.join.as_ref())
+            }
         })
     }
 }
@@ -358,25 +365,62 @@ async fn drop_conn(conn: Conn) {
     }
 }
 
-/// A failed call: a message for people, and whether the link is gone.
+/// An `Error` for JavaScript with a `kind` the page can branch on, and for
+/// a failed join the parts of its explanation.
+fn js_error(kind: &str, message: &str, join: Option<&JoinFailureView>) -> JsValue {
+    let e = js_sys::Error::new(message);
+    let set = |k: &str, v: JsValue| {
+        let _ = js_sys::Reflect::set(&e, &JsValue::from_str(k), &v);
+    };
+    set("kind", JsValue::from_str(kind));
+    if let Some(j) = join {
+        set("title", JsValue::from_str(&j.title));
+        set("advice", JsValue::from_str(&j.advice));
+        if let Some(rssi) = j.rssi {
+            set("rssi", JsValue::from(rssi));
+        }
+        if let Some(s) = &j.similar {
+            set("similar", JsValue::from_str(s));
+        }
+    }
+    e.into()
+}
+
+/// A failed call: a message for people, a kind for the page (`device`,
+/// `timeout`, `link`, or a join-failure kind), and whether the link is
+/// gone.
 struct Failure {
+    kind: &'static str,
     message: String,
     disconnected: bool,
+    join: Option<JoinFailureView>,
 }
 
 impl<E: Debug + LinkFailure> From<ClientError<E>> for Failure {
     fn from(e: ClientError<E>) -> Self {
         Self {
+            kind: match &e {
+                ClientError::Link(_) => "link",
+                ClientError::Device(ErrorCode::NotAuthorized) => "not-authorized",
+                ClientError::Device(ErrorCode::BadHostname) => "bad-hostname",
+                ClientError::Device(ErrorCode::UnknownCommand) | ClientError::Unsupported => {
+                    "unsupported"
+                }
+                _ => "device",
+            },
             disconnected: matches!(&e, ClientError::Link(l) if l.is_disconnect()),
             message: error_message(&e),
+            join: None,
         }
     }
 }
 
 fn timeout_failure(ms: u32) -> Failure {
     Failure {
+        kind: "timeout",
         message: format!("No answer from the device within {} s.", ms / 1000),
         disconnected: false,
+        join: None,
     }
 }
 
@@ -404,22 +448,25 @@ where
     L::Error: LinkFailure,
 {
     if timed(CALL_MS, c.current_state()).await? == State::AuthorizationRequired {
-        say("Press the button on the device to authorize it\u{2026}");
+        say("authorize");
         timed(JOIN_MS, c.wait_for_state(State::Authorized)).await?;
     }
-    say(&format!("Sending credentials for {ssid}\u{2026}"));
+    say("send");
     match with_timeout(JOIN_MS, c.provision(ssid, passphrase)).await {
         None => Err(timeout_failure(JOIN_MS)),
         Some(Ok(url)) => Ok(url.map(|u| u.as_str().into())),
         Some(Err(ClientError::Device(ErrorCode::UnableToConnect))) => {
-            say("Joining failed; scanning to find out why\u{2026}");
+            say("diagnose");
             let seen = with_timeout(SCAN_AFTER_FAILURE_MS, c.scan::<SCAN_CAPACITY>())
                 .await
                 .and_then(Result::ok);
             let diagnosis = diagnose_join_failure(ssid, !passphrase.is_empty(), seen.as_deref());
+            let view = join_failure_view(ssid, &diagnosis);
             Err(Failure {
-                message: join_failure_message(ssid, &diagnosis),
+                kind: view.kind,
+                message: format!("{}. {}", view.title, view.advice),
                 disconnected: false,
+                join: Some(view),
             })
         }
         Some(Err(e)) => Err(e.into()),
