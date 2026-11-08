@@ -55,12 +55,17 @@ Core Specification, Vol 6, Part B, 1.3.2.1 requires). It is the same on
 every boot and differs from the chip's public address.
 
 Clients such as ESPHome Bluetooth proxies cache a device's GATT layout by
-address, and this firmware has no Service Changed or Database Hash
-characteristic that would tell them it changed. With the public address, a
-proxy that had seen earlier firmware on the same chip used that firmware's
-layout, and Home Assistant failed to subscribe with "Write not permitted".
-A future firmware that changes the GATT layout can hit the same problem
-under this address.
+address. With the public address, a proxy that had seen earlier firmware on
+the same chip used that firmware's layout, and Home Assistant failed to
+subscribe with "Write not permitted".
+
+The GATT service also carries a Database Hash characteristic (`0x2B2A`,
+with Service Changed and Client Supported Features; Bluetooth Core
+Specification, Vol 3, Part G, 7), built by
+`impromptu_wifi::embassy::trouble::add_gap_and_gatt`. A client that checks
+it on connecting discovers the services again when a firmware update
+changes the layout. Clients that don't check it can still use a stale
+layout.
 
 ## Status LED
 

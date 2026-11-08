@@ -11,7 +11,7 @@ keywords = ["improv", "wifi", "provisioning", "embassy", "ble"]
 
 [features]
 ## Device side over trouble-host: the Improv GATT service and a GattServer.
-trouble = ["dep:trouble-host", "dep:static_cell", "trouble-host/peripheral"]
+trouble = ["dep:trouble-host", "dep:static_cell", "trouble-host/peripheral", "dep:aes", "dep:cmac"]
 ## Client side over trouble-host: a GattClient for provisioning other devices.
 trouble-central = ["dep:trouble-host", "trouble-host/central"]
 ## Serial over USB CDC-ACM with embassy-usb.
@@ -44,6 +44,9 @@ embassy-net = { version = "0.9.1", optional = true, default-features = false, fe
 esp-radio = { version = "=1.0.0-beta.1", optional = true, default-features = false }
 # The gatt_service macro expands to code that uses static_cell.
 static_cell = { version = "2.1.1", optional = true }
+# The GATT Database Hash (AES-CMAC), for `trouble::gatt`.
+aes = { version = "0.9.3", optional = true, default-features = false }
+cmac = { version = "0.8.0", optional = true, default-features = false }
 trouble-host = { version = "0.7.0", optional = true, default-features = false, features = ["gatt", "derive", "default-packet-pool"] }
 
 [dev-dependencies]

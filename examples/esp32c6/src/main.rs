@@ -56,7 +56,8 @@ use impromptu_wifi::device::{
 use impromptu_wifi::embassy::esp::EspWifi;
 use impromptu_wifi::embassy::flash::FlashStore;
 use impromptu_wifi::embassy::trouble::{
-    serve, ImprovWifiBridge, ImprovWifiService, TroubleGattServer,
+    add_gap_and_gatt, serve, ImprovWifiBridge, ImprovWifiService, TroubleGattServer,
+    GAP_GATT_ATTRIBUTE_COUNT,
 };
 use impromptu_wifi::embassy::{
     keep_online, Button, ButtonAuth, JoinEvents, KeepOnline, PersistOnJoin, Press, SharedWifi,
@@ -133,7 +134,10 @@ unsupported!(Board: HostnameProvider);
 
 const CAPS: Capabilities = capabilities::<Wifi, Board>();
 
-#[gatt_server]
+/// The GAP and GATT services come from `add_gap_and_gatt`, whose GATT service
+/// carries a Database Hash, so clients that cache the layout notice when a
+/// firmware update changes it.
+#[gatt_server(attribute_table_size = GAP_GATT_ATTRIBUTE_COUNT + ImprovWifiService::ATTRIBUTE_COUNT)]
 struct Server {
     improv_wifi: ImprovWifiService,
 }
@@ -303,11 +307,11 @@ async fn ble<C: Controller>(controller: C, radio: &'static Radio, mut joins: Joi
         .build();
     let mut peripheral = stack.peripheral();
     let mut runner = stack.runner();
-    let server = Server::new_with_config(GapConfig::Peripheral(PeripheralConfig {
-        name: BLE_NAME,
-        appearance: &appearance::UNKNOWN,
-    }))
-    .expect("building the GATT server");
+    let mut table = AttributeTable::new();
+    let hash = add_gap_and_gatt(&mut table, BLE_NAME, &appearance::UNKNOWN);
+    let server = Server::new(table);
+    hash.update(server.table())
+        .expect("storing the GATT database hash");
     let mut auth = ButtonAuth::new(&SHORT_PRESS, AUTH_TIMEOUT);
     let mut scan_buf = [0; ADVERTISING_DATA_LEN];
     let scan_data = scan_response_data(BLE_NAME, &mut scan_buf);
