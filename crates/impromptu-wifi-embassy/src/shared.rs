@@ -22,7 +22,10 @@
 //! transport makes a scan from the other wait for it. That is what a single
 //! radio would do anyway.
 
+use core::cell::Cell;
+
 use embassy_sync::blocking_mutex::raw::RawMutex;
+use embassy_sync::blocking_mutex::Mutex as BlockingMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::watch::{Receiver, Watch};
 use impromptu_wifi_core::traits::{
@@ -36,6 +39,21 @@ use impromptu_wifi_core::traits::{
 pub struct WifiShare<M: RawMutex, W, const RECEIVERS: usize> {
     wifi: Mutex<M, W>,
     joined: Watch<M, DeviceEvent, RECEIVERS>,
+    /// Joins in progress through a handle.
+    joining: BlockingMutex<M, Cell<u8>>,
+}
+
+/// What a device is doing with its network, for a status indicator; see
+/// [`WifiShare::status`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum WifiStatus {
+    /// Not on a network: waiting for a client to provision it.
+    Unprovisioned,
+    /// Joining a network, for a client or to rejoin a saved one.
+    Joining,
+    /// On a network.
+    Provisioned,
 }
 
 impl<M: RawMutex, W, const RECEIVERS: usize> WifiShare<M, W, RECEIVERS> {
@@ -44,6 +62,7 @@ impl<M: RawMutex, W, const RECEIVERS: usize> WifiShare<M, W, RECEIVERS> {
         Self {
             wifi: Mutex::new(wifi),
             joined: Watch::new(),
+            joining: BlockingMutex::new(Cell::new(0)),
         }
     }
 
@@ -74,6 +93,20 @@ impl<M: RawMutex, W, const RECEIVERS: usize> WifiShare<M, W, RECEIVERS> {
         matches!(self.joined.try_get(), Some(DeviceEvent::Provisioned(_)))
     }
 
+    /// What the device is doing with its network: joining while any handle
+    /// is in [`connect`](WifiConnect::connect), otherwise whether the last
+    /// announcement was `Provisioned`. Doesn't wait for the lock, so an LED
+    /// task can read it on every frame.
+    pub fn status(&self) -> WifiStatus {
+        if self.joining.lock(Cell::get) > 0 {
+            WifiStatus::Joining
+        } else if self.is_provisioned() {
+            WifiStatus::Provisioned
+        } else {
+            WifiStatus::Unprovisioned
+        }
+    }
+
     /// The backend, for the application: to read the credentials after a
     /// join, for example.
     pub fn wifi(&self) -> &Mutex<M, W> {
@@ -97,7 +130,10 @@ impl<M: RawMutex, W, const R: usize> Copy for SharedWifi<'_, M, W, R> {}
 
 impl<M: RawMutex, W: WifiConnect, const R: usize> WifiConnect for SharedWifi<'_, M, W, R> {
     async fn connect(&mut self, ssid: &str, password: &str) -> Result<Option<Url>, ConnectError> {
-        let result = self.share.wifi.lock().await.connect(ssid, password).await;
+        let result = {
+            let _joining = Joining::start(&self.share.joining);
+            self.share.wifi.lock().await.connect(ssid, password).await
+        };
         if let Ok(url) = &result {
             self.share
                 .joined
@@ -128,6 +164,22 @@ impl<M: RawMutex, W: NetworkStatus, const R: usize> NetworkStatus for SharedWifi
 
     async fn current_url(&self) -> Option<Url> {
         self.share.wifi.lock().await.current_url().await
+    }
+}
+
+/// Counts a join in progress, also when the join is cancelled.
+struct Joining<'a, M: RawMutex>(&'a BlockingMutex<M, Cell<u8>>);
+
+impl<'a, M: RawMutex> Joining<'a, M> {
+    fn start(count: &'a BlockingMutex<M, Cell<u8>>) -> Self {
+        count.lock(|c| c.set(c.get().saturating_add(1)));
+        Self(count)
+    }
+}
+
+impl<M: RawMutex> Drop for Joining<'_, M> {
+    fn drop(&mut self) {
+        self.0.lock(|c| c.set(c.get().saturating_sub(1)));
     }
 }
 

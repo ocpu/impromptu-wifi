@@ -15,6 +15,9 @@
 //!   keeps trying in the background.
 //! * **Factory reset:** hold BOOT for 5 seconds. The saved network is erased
 //!   and the chip restarts unprovisioned.
+//! * **Status LED:** the WS2812 on GPIO8 shows whether the device is waiting,
+//!   joining or online, and blinks white when a BLE client sends Identify.
+//!   See the `led` module for the patterns.
 //! * **Logs:** UART0, so they never interleave with serial frames.
 //!
 //! Both transports share one Wi-Fi controller through a [`WifiShare`], which
@@ -23,6 +26,8 @@
 
 #![no_std]
 #![no_main]
+
+mod led;
 
 use bt_hci::controller::ExternalController;
 use embassy_executor::Spawner;
@@ -45,7 +50,8 @@ use esp_radio::wifi::{Interface, WifiController};
 use esp_storage::FlashStorage;
 use impromptu_wifi::ble::{capabilities, BleLink};
 use impromptu_wifi::device::{
-    unsupported, AuthEvent, AuthSource, DeviceEvent, DeviceInfoSource, Driver, EventSource, NoAuth,
+    unsupported, AuthEvent, AuthSource, DeviceEvent, DeviceInfoSource, Driver, EventSource,
+    Identify, NoAuth,
 };
 use impromptu_wifi::embassy::esp::EspWifi;
 use impromptu_wifi::embassy::flash::FlashStore;
@@ -109,7 +115,15 @@ impl DeviceInfoSource for Board {
     }
 }
 
-unsupported!(Board: Identify, HostnameProvider);
+/// Identify blinks the status LED, in the LED task: the driver doesn't
+/// wait for it.
+impl Identify for Board {
+    async fn identify(&mut self) {
+        led::EVENTS.signal(led::Event::Identify);
+    }
+}
+
+unsupported!(Board: HostnameProvider);
 
 const CAPS: Capabilities = capabilities::<Wifi, Board>();
 
@@ -160,6 +174,10 @@ async fn main(spawner: Spawner) -> ! {
     // Rejoin the saved network now and whenever it drops.
     spawner.spawn(keep_online_task(radio).expect("spawning the keep-online task"));
 
+    // The status LED.
+    let ws2812 = led::Ws2812::new(peripherals.RMT, peripherals.GPIO8);
+    spawner.spawn(led_task(ws2812, radio).expect("spawning the LED task"));
+
     // BOOT: a short press authorizes BLE, a long one resets.
     let button = Input::new(
         peripherals.GPIO9,
@@ -201,6 +219,11 @@ async fn net_task(mut runner: Runner<'static, Interface>) -> ! {
 }
 
 #[embassy_executor::task]
+async fn led_task(ws2812: led::Ws2812, radio: &'static Radio) -> ! {
+    led::run(ws2812, || radio.status()).await
+}
+
+#[embassy_executor::task]
 async fn keep_online_task(radio: &'static Radio) -> ! {
     keep_online(radio, KeepOnline::default()).await
 }
@@ -209,9 +232,15 @@ async fn keep_online_task(radio: &'static Radio) -> ! {
 async fn button_task(mut button: Button<Input<'static>>, radio: &'static Radio) -> ! {
     loop {
         match button.next().await {
-            Press::Short => SHORT_PRESS.signal(()),
+            Press::Short => {
+                SHORT_PRESS.signal(());
+                led::EVENTS.signal(led::Event::Acknowledge);
+            }
             Press::Long => {
                 info!("factory reset: erasing the saved network");
+                led::EVENTS.signal(led::Event::Reset);
+                // Let the LED task show it before the flash erase blocks.
+                Timer::after(Duration::from_millis(100)).await;
                 // Waits for a join in progress to finish.
                 let mut wifi = radio.wifi().lock().await;
                 if let Err(e) = wifi.forget().await {

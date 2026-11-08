@@ -16,7 +16,7 @@ use impromptu_wifi_core::traits::{
     EventSource, NetworkFlags, NetworkStatus, Url, WifiConnect,
 };
 use impromptu_wifi_embassy::{
-    keep_online, Button, ButtonAuth, KeepOnline, PersistOnJoin, Press, WifiShare,
+    keep_online, Button, ButtonAuth, KeepOnline, PersistOnJoin, Press, WifiShare, WifiStatus,
 };
 
 // ---------------------------------------------------------------------------
@@ -272,4 +272,46 @@ fn unprovisioned_is_announced_to_every_driver() {
     // Only the latest announcement is kept.
     assert_eq!(block_on(a.next()), DeviceEvent::Unprovisioned);
     assert_eq!(block_on(b.next()), DeviceEvent::Unprovisioned);
+}
+
+#[test]
+fn status_follows_joins_and_announcements() {
+    let world = World::default();
+    let share = WifiShare::<NoopRawMutex, _, 1>::new(Radio(world.clone()));
+    assert_eq!(share.status(), WifiStatus::Unprovisioned);
+
+    // Joining while a connect is in progress, also one that fails.
+    let mut handle = share.handle();
+    let seen = block_on(async {
+        let join = handle.connect("home", "pw");
+        let watch = async {
+            // `connect` counts itself before taking the lock.
+            let _lock = share.wifi().lock().await;
+            Timer::after(Duration::from_millis(5)).await;
+            share.status()
+        };
+        let (seen, _) = embassy_futures::join::join(watch, join).await;
+        seen
+    });
+    assert_eq!(seen, WifiStatus::Joining);
+    assert_eq!(share.status(), WifiStatus::Unprovisioned, "the join failed");
+
+    world.ap_up.set(true);
+    block_on(share.handle().connect("home", "pw")).unwrap();
+    assert_eq!(share.status(), WifiStatus::Provisioned);
+
+    // A cancelled join doesn't leave the status stuck at Joining.
+    block_on(async {
+        let _lock = share.wifi().lock().await;
+        let mut handle = share.handle();
+        let _ = select(
+            handle.connect("home", "pw"),
+            Timer::after(Duration::from_millis(5)),
+        )
+        .await;
+    });
+    assert_eq!(share.status(), WifiStatus::Provisioned);
+
+    share.announce_unprovisioned();
+    assert_eq!(share.status(), WifiStatus::Unprovisioned);
 }

@@ -57,7 +57,7 @@ pub mod usb;
 pub use auth::ButtonAuth;
 pub use button::{Button, Press};
 pub use lifecycle::{keep_online, KeepOnline};
-pub use shared::{JoinEvents, SharedWifi, WifiShare};
+pub use shared::{JoinEvents, SharedWifi, WifiShare, WifiStatus};
 
 pub use impromptu_wifi_ble::{BleClientLink, BleLink};
 pub use impromptu_wifi_client::Client;

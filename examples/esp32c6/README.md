@@ -44,6 +44,23 @@ table has one at `0x9000`.
 * A save erases the sector before writing it. If power fails between the
   two, the device boots unprovisioned.
 
+## Status LED
+
+The WS2812 RGB LED on GPIO8, driven by the RMT peripheral at 80 MHz.
+
+| Pattern | Meaning |
+|---|---|
+| Blue, blinking once a second | Unprovisioned: waiting for a client |
+| Yellow, blinking four times a second | Joining a network, for a client or to rejoin the saved one |
+| Green, steady | On a network |
+| White, blinking fast for 5 s | A BLE client sent Identify |
+| Cyan flash | BOOT pressed briefly: BLE writes authorized for 60 s |
+| Red, steady | BOOT held for 5 s: factory reset in progress |
+
+The status comes from `WifiShare::status`. Because the device implements
+`Identify`, BLE advertisements and the capabilities characteristic include
+the identify bit.
+
 ## Prerequisites
 
 * Rust 1.91 or later with the `riscv32imac-unknown-none-elf` target:
@@ -80,7 +97,8 @@ provision it, over serial and BLE respectively.
 
 ## Limitations
 
-* **No identify and no hostname.** The board's RGB LED needs an RMT driver,
-  which this example leaves out.
+* **No hostname.** Clients can't read or set the hostname.
+* **The LED is assumed on GPIO8**, as on the ESP32-C6-DevKitC-1. Other
+  boards need a different pin, or none.
 * **Not yet run on hardware.** The firmware builds and links in CI; it has not
   been flashed and tested against a real client.
