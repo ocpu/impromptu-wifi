@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>impromptu-wifi</title>
+  <meta name="description" content="An independent Rust implementation of the Improv Wi-Fi standard, with a browser client for Web Serial and Web Bluetooth.">
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header class="top">
+    <nav aria-label="Site">
+      <a class="brand" href="./">impromptu-wifi</a>
+      <a href="#try">Try it</a>
+      <a href="docs/">Docs</a>
+      <a href="https://github.com/ocpu/impromptu-wifi">GitHub</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="credit" aria-labelledby="about-improv">
+      <p class="eyebrow">About the standard</p>
+      <h1 id="about-improv">Improv Wi-Fi</h1>
+      <p>
+        <strong>Improv Wi-Fi</strong> is a free and open standard for putting a
+        device on a Wi-Fi network over Bluetooth LE or a serial connection. It
+        is an initiative by <a href="https://esphome.io/">ESPHome</a> and
+        <a href="https://www.home-assistant.io/">Home Assistant</a>, with
+        development funded by <a href="https://www.nabucasa.com/">Nabu Casa</a>.
+      </p>
+      <p>
+        The specification, official SDKs and the list of projects that use it
+        are at <a href="https://www.improv-wifi.com/">improv-wifi.com</a>:
+        <a href="https://www.improv-wifi.com/ble/">Bluetooth LE specification</a> ·
+        <a href="https://www.improv-wifi.com/serial/">serial specification</a> ·
+        <a href="https://github.com/improv-wifi">github.com/improv-wifi</a>.
+      </p>
+      <p class="disclaimer">
+        impromptu-wifi is an independent Rust implementation. It is not
+        affiliated with or endorsed by the Improv Wi-Fi project.
+      </p>
+    </section>
+
+    <section aria-labelledby="how">
+      <h2 id="how">How Improv works</h2>
+      <ol class="steps">
+        <li><span>A device without network access starts and offers Improv over Bluetooth LE, serial, or both.</span></li>
+        <li><span>A client, such as a phone, a browser or a command-line tool, connects and sends a network name and passphrase.</span></li>
+        <li><span>The device joins the network and reports success, optionally with a URL where it can be reached.</span></li>
+        <li><span>The user opens that URL to finish setting up the device.</span></li>
+      </ol>
+    </section>
+
+    <section id="try" aria-labelledby="try-title">
+      <h2 id="try-title">Try it</h2>
+      <p>
+        Provision an Improv device from this page. It runs the impromptu-wifi
+        client, compiled from Rust to WebAssembly, in your browser; the network
+        name and passphrase go only to the device you choose.
+      </p>
+
+      <div id="connect" class="panel">
+        <div class="buttons">
+          <button id="connect-serial" type="button" hidden>Connect over USB serial</button>
+          <button id="connect-ble" type="button" hidden>Connect over Bluetooth</button>
+        </div>
+        <p id="support" class="note"></p>
+      </div>
+
+      <div id="device" class="panel" hidden>
+        <div class="device-head">
+          <p><span id="device-label"></span></p>
+          <button id="disconnect" type="button" class="secondary">Disconnect</button>
+        </div>
+
+        <div class="buttons">
+          <button data-action="state" type="button">State</button>
+          <button data-action="info" type="button">Info</button>
+          <button data-action="scan" type="button">Scan</button>
+          <button data-action="identify" type="button" data-only="bluetooth">Identify</button>
+          <button data-action="network" type="button" data-only="serial">Network</button>
+        </div>
+
+        <ul id="networks" class="networks" hidden></ul>
+
+        <form id="provision" class="form">
+          <h3>Wi-Fi</h3>
+          <label>Network name <input id="ssid" name="ssid" required autocomplete="off" spellcheck="false"></label>
+          <label>Passphrase <input id="passphrase" name="passphrase" type="password" autocomplete="off"></label>
+          <label class="check"><input id="open" type="checkbox"> Open network (no passphrase)</label>
+          <button type="submit">Connect device to Wi-Fi</button>
+        </form>
+
+        <form id="names" class="form">
+          <h3>Names</h3>
+          <label>Hostname <input id="hostname" autocomplete="off" spellcheck="false"></label>
+          <div class="buttons">
+            <button data-action="hostname-read" type="button" class="secondary">Read</button>
+            <button data-action="hostname-set" type="button" class="secondary">Set</button>
+          </div>
+          <label>Device name <input id="device-name" autocomplete="off" spellcheck="false"></label>
+          <div class="buttons">
+            <button data-action="name-read" type="button" class="secondary">Read</button>
+            <button data-action="name-set" type="button" class="secondary">Set</button>
+          </div>
+        </form>
+
+        <output id="result" class="result" aria-live="polite"></output>
+      </div>
+    </section>
+
+    <section aria-labelledby="adds">
+      <h2 id="adds">What this implementation adds</h2>
+      <ul class="cards">
+        <li><h3>Both roles</h3><p>The device being provisioned and the client that provisions it, sharing one protocol core.</p></li>
+        <li><h3>Firmware</h3><p><code>no_std</code> crates without allocation for embedded devices, with an ESP32-S3 example.</p></li>
+        <li><h3>Linux</h3><p>A daemon that makes a Linux machine, such as a Raspberry Pi, provisionable over Bluetooth LE and serial.</p></li>
+        <li><h3>Command line</h3><p>A CLI that provisions devices over serial or Bluetooth LE, and this page for the browser.</p></li>
+      </ul>
+      <p>The <a href="docs/reference/support-matrix.html">support matrix</a> lists the devices, systems and clients that have been tested.</p>
+    </section>
+
+    <section aria-labelledby="docs-title">
+      <h2 id="docs-title">Documentation</h2>
+      <ul class="links">
+        <li><a href="docs/how-to/provision-from-a-browser.html">Provision a device from a browser</a></li>
+        <li><a href="docs/examples/esp32s3/README.html">ESP32-S3 example firmware</a></li>
+        <li><a href="docs/examples/raspberry-pi/README.html">Raspberry Pi example</a></li>
+        <li><a href="docs/reference/cli.html">Command-line tool reference</a></li>
+        <li><a href="docs/explanation/security-model.html">Security model</a></li>
+        <li><a href="docs/">All documentation</a></li>
+      </ul>
+    </section>
+  </main>
+
+  <footer>
+    <p>
+      impromptu-wifi is licensed under MIT OR Apache-2.0.
+      Improv Wi-Fi is a standard by ESPHome and Home Assistant;
+      see <a href="https://www.improv-wifi.com/">improv-wifi.com</a>.
+    </p>
+  </footer>
+</body>
+</html>
