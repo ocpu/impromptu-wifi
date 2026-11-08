@@ -1,16 +1,19 @@
-//! One Wi-Fi backend shared by several drivers.
+//! One Wi-Fi backend shared by several drivers, which agree on being
+//! provisioned.
 //!
 //! A device that offers Improv Wi-Fi over serial and BLE at the same time
 //! runs two [`Driver`](impromptu_wifi_core::Driver)s, but has one Wi-Fi
-//! controller, which can't be cloned. Put the backend in a
-//! [`Mutex`] and give each driver a [`SharedWifi`]:
+//! controller, which can't be cloned. Put the backend in a [`WifiShare`],
+//! give each driver a [`SharedWifi`] handle, and pass each driver the
+//! share's [`JoinEvents`]. When one driver provisions the device, the others
+//! report `Provisioned` too, and a BLE driver's `provision_with` returns:
 //!
 //! ```ignore
-//! static WIFI: StaticCell<Mutex<CriticalSectionRawMutex, EspWifi>> = StaticCell::new();
-//! let wifi = WIFI.init(Mutex::new(EspWifi::new(controller).with_stack(stack)));
+//! static SHARE: StaticCell<WifiShare<CriticalSectionRawMutex, EspWifi, 2>> = StaticCell::new();
+//! let share = SHARE.init(WifiShare::new(EspWifi::new(controller).with_stack(stack)));
 //!
-//! let serial = Driver::new(serial_link, SharedWifi::new(wifi), device, false);
-//! let ble = Driver::new(ble_link, SharedWifi::new(wifi), device, true);
+//! let mut serial = Driver::new(serial_link, share.handle(), device, false);
+//! serial.run_with(&mut NoAuth, &mut share.events().unwrap()).await;
 //! ```
 //!
 //! Each call holds the lock until it finishes, so a join started over one
@@ -19,63 +22,106 @@
 
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::mutex::Mutex;
+use embassy_sync::watch::{Receiver, Watch};
 use impromptu_wifi_core::traits::{
-    ConnectError, NetworkFlags, NetworkInfo, NetworkStatus, ScanError, Url, WifiConnect,
-    WifiScanner,
+    ConnectError, DeviceEvent, EventSource, NetworkFlags, NetworkInfo, NetworkStatus, ScanError,
+    Url, WifiConnect, WifiScanner,
 };
 
-/// A handle to a Wi-Fi backend `W` behind a mutex. Implements the Wi-Fi
-/// traits `W` implements, including whether the optional ones are
-/// supported.
-pub struct SharedWifi<'a, M: RawMutex, W> {
-    wifi: &'a Mutex<M, W>,
+/// A Wi-Fi backend `W` behind a mutex, and the announcement of its last
+/// successful join. `RECEIVERS` is how many [`JoinEvents`] can exist, one
+/// per driver.
+pub struct WifiShare<M: RawMutex, W, const RECEIVERS: usize> {
+    wifi: Mutex<M, W>,
+    joined: Watch<M, Option<Url>, RECEIVERS>,
 }
 
-impl<'a, M: RawMutex, W> SharedWifi<'a, M, W> {
-    /// A handle to `wifi`.
-    pub const fn new(wifi: &'a Mutex<M, W>) -> Self {
-        Self { wifi }
+impl<M: RawMutex, W, const RECEIVERS: usize> WifiShare<M, W, RECEIVERS> {
+    /// Share `wifi`.
+    pub const fn new(wifi: W) -> Self {
+        Self {
+            wifi: Mutex::new(wifi),
+            joined: Watch::new(),
+        }
     }
 
-    /// The shared backend.
-    pub fn inner(&self) -> &'a Mutex<M, W> {
-        self.wifi
+    /// A handle for one driver. Handles are `Copy`.
+    pub fn handle(&self) -> SharedWifi<'_, M, W, RECEIVERS> {
+        SharedWifi { share: self }
+    }
+
+    /// The joins made through any handle, as [`DeviceEvent::Provisioned`],
+    /// for one driver's [`EventSource`]. `None` once `RECEIVERS` exist.
+    ///
+    /// A receiver taken after a join still reports that join, so a driver
+    /// started later learns that the device is already provisioned.
+    pub fn events(&self) -> Option<JoinEvents<'_, M, RECEIVERS>> {
+        self.joined.receiver().map(JoinEvents)
+    }
+
+    /// The backend, for the application: to read the credentials after a
+    /// join, for example.
+    pub fn wifi(&self) -> &Mutex<M, W> {
+        &self.wifi
     }
 }
 
-impl<M: RawMutex, W> Clone for SharedWifi<'_, M, W> {
+/// A handle to a [`WifiShare`]. Implements the Wi-Fi traits `W` implements,
+/// including whether the optional ones are supported.
+pub struct SharedWifi<'a, M: RawMutex, W, const RECEIVERS: usize> {
+    share: &'a WifiShare<M, W, RECEIVERS>,
+}
+
+impl<M: RawMutex, W, const R: usize> Clone for SharedWifi<'_, M, W, R> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<M: RawMutex, W> Copy for SharedWifi<'_, M, W> {}
+impl<M: RawMutex, W, const R: usize> Copy for SharedWifi<'_, M, W, R> {}
 
-impl<M: RawMutex, W: WifiConnect> WifiConnect for SharedWifi<'_, M, W> {
+impl<M: RawMutex, W: WifiConnect, const R: usize> WifiConnect for SharedWifi<'_, M, W, R> {
     async fn connect(&mut self, ssid: &str, password: &str) -> Result<Option<Url>, ConnectError> {
-        self.wifi.lock().await.connect(ssid, password).await
+        let result = self.share.wifi.lock().await.connect(ssid, password).await;
+        if let Ok(url) = &result {
+            self.share.joined.sender().send(url.clone());
+        }
+        result
     }
 }
 
-impl<M: RawMutex, W: WifiScanner> WifiScanner for SharedWifi<'_, M, W> {
+impl<M: RawMutex, W: WifiScanner, const R: usize> WifiScanner for SharedWifi<'_, M, W, R> {
     const SUPPORTED: bool = W::SUPPORTED;
 
     async fn scan<const N: usize>(
         &mut self,
         out: &mut heapless::Vec<NetworkInfo, N>,
     ) -> Result<(), ScanError> {
-        self.wifi.lock().await.scan(out).await
+        self.share.wifi.lock().await.scan(out).await
     }
 }
 
-impl<M: RawMutex, W: NetworkStatus> NetworkStatus for SharedWifi<'_, M, W> {
+impl<M: RawMutex, W: NetworkStatus, const R: usize> NetworkStatus for SharedWifi<'_, M, W, R> {
     const SUPPORTED: bool = W::SUPPORTED;
 
     async fn network_flags(&self) -> NetworkFlags {
-        self.wifi.lock().await.network_flags().await
+        self.share.wifi.lock().await.network_flags().await
     }
 
     async fn current_url(&self) -> Option<Url> {
-        self.wifi.lock().await.current_url().await
+        self.share.wifi.lock().await.current_url().await
+    }
+}
+
+/// Joins made through a [`WifiShare`], as an [`EventSource`].
+pub struct JoinEvents<'a, M: RawMutex, const RECEIVERS: usize>(
+    Receiver<'a, M, Option<Url>, RECEIVERS>,
+);
+
+impl<M: RawMutex, const R: usize> EventSource for JoinEvents<'_, M, R> {
+    async fn next(&mut self) -> DeviceEvent {
+        // Cancel-safe: the receiver only marks a value seen when `changed`
+        // returns it.
+        DeviceEvent::Provisioned(self.0.changed().await)
     }
 }

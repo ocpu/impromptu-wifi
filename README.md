@@ -157,7 +157,7 @@ Everything that parses or encodes takes a `Transport`, and the driver formats sc
 |---|---|
 | `impromptu-wifi-proto` | Complete for spec as of BLE 2.4 / serial v1, including hostname, device name and network state |
 | `impromptu-wifi-traits` | Complete |
-| `impromptu-wifi-core` | State machine and driver complete. The driver tells the `AuthSource` when the spec restarts the authorization timeout, and follows an optional `AvailabilitySource` for the serial `Stopped` state |
+| `impromptu-wifi-core` | State machine and driver complete. The driver tells the `AuthSource` when the spec restarts the authorization timeout, and follows an optional `EventSource`: Wi-Fi availability (the serial `Stopped` state) and joins made by another driver, so all transports report `Provisioned` together (`NotifyOnJoin`, and `WifiShare` on embassy) |
 | `impromptu-wifi-client` | Complete: session machine and async client for every command |
 | `impromptu-wifi-serial` | Complete for both roles |
 | `impromptu-wifi-ble` | Both roles complete against the `GattServer` / `GattClient` traits; no stack bindings yet |

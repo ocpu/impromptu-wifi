@@ -7,6 +7,8 @@
 //! * [`hostname::LinuxDevice`] (feature `hostnamed`): device info, hostname
 //!   and device name through systemd-hostnamed.
 //! * [`serial`] (feature `serial`): UARTs and USB gadget ports.
+//! * [`join`]: keeps the serial and Bluetooth drivers in agreement once
+//!   either of them provisions the machine.
 //! * [`bluez::BluezGatt`] (feature `bluez`): Bluetooth LE through BlueZ.
 //! * The `impromptu-wifi-device` binary (feature `daemon`) ties these together as a
 //!   systemd service; unit and polkit files are in `dist/`.
@@ -18,6 +20,7 @@
 pub mod bluez;
 #[cfg(feature = "hostnamed")]
 pub mod hostname;
+pub mod join;
 #[cfg(feature = "networkmanager")]
 pub mod nm;
 #[cfg(feature = "serial")]

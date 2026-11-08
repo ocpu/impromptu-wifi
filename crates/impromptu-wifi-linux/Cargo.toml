@@ -32,7 +32,7 @@ impromptu-wifi-serial.workspace = true
 impromptu-wifi-ble.workspace = true
 heapless.workspace = true
 log = "0.4.34"
-tokio = { version = "1.54", features = ["time", "fs"] }
+tokio = { version = "1.54", features = ["time", "fs", "sync"] }
 zbus = { version = "5.19", optional = true, default-features = false, features = ["tokio"] }
 futures = { version = "0.3.34", optional = true }
 tokio-serial = { version = "5.5", optional = true }

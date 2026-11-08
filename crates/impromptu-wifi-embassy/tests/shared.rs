@@ -1,13 +1,15 @@
-//! `SharedWifi`: two handles to one backend, with support forwarded.
+//! `WifiShare`: handles to one backend, support forwarded, joins announced.
 
 use embassy_futures::block_on;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-use embassy_sync::mutex::Mutex;
 use impromptu_wifi_core::traits::{
-    unsupported, ConnectError, NetworkInfo, NetworkStatus, ScanError, Url, WifiAuth, WifiConnect,
-    WifiScanner,
+    unsupported, ConnectError, DeviceEvent, EventSource, NetworkInfo, NetworkStatus, ScanError,
+    Url, WifiAuth, WifiConnect, WifiScanner,
 };
-use impromptu_wifi_embassy::SharedWifi;
+use impromptu_wifi_embassy::{SharedWifi, WifiShare};
+
+type Share = WifiShare<NoopRawMutex, Radio, 2>;
+type Handle<'a> = SharedWifi<'a, NoopRawMutex, Radio, 2>;
 
 #[derive(Default)]
 struct Radio {
@@ -38,8 +40,8 @@ unsupported!(Radio: NetworkStatus);
 
 #[test]
 fn handles_share_one_backend_and_forward_support() {
-    let radio = Mutex::<NoopRawMutex, _>::new(Radio::default());
-    let mut serial = SharedWifi::new(&radio);
+    let share = Share::new(Radio::default());
+    let mut serial = share.handle();
     let mut ble = serial;
 
     let url = block_on(serial.connect("home", "pw")).unwrap();
@@ -49,7 +51,7 @@ fn handles_share_one_backend_and_forward_support() {
         Err(ConnectError::NetworkNotFound)
     );
     assert_eq!(
-        block_on(radio.lock()).joins,
+        block_on(share.wifi().lock()).joins,
         2,
         "both went to the one radio"
     );
@@ -58,6 +60,22 @@ fn handles_share_one_backend_and_forward_support() {
     block_on(ble.scan(&mut found)).unwrap();
     assert_eq!(found[0].ssid.as_str(), "home");
 
-    const { assert!(<SharedWifi<'_, NoopRawMutex, Radio> as WifiScanner>::SUPPORTED) };
-    const { assert!(!<SharedWifi<'_, NoopRawMutex, Radio> as NetworkStatus>::SUPPORTED) };
+    const { assert!(<Handle<'_> as WifiScanner>::SUPPORTED) };
+    const { assert!(!<Handle<'_> as NetworkStatus>::SUPPORTED) };
+}
+
+#[test]
+fn joins_are_announced_to_every_driver() {
+    let share = Share::new(Radio::default());
+    let mut serial_events = share.events().unwrap();
+    let mut ble_events = share.events().unwrap();
+    assert!(share.events().is_none(), "only RECEIVERS of them");
+
+    // A failed join announces nothing; a successful one reaches both.
+    let mut ble = share.handle();
+    assert!(block_on(ble.connect("cafe", "pw")).is_err());
+    block_on(ble.connect("home", "pw")).unwrap();
+    let expected = DeviceEvent::Provisioned(Some(Url::try_from("http://10.0.0.2").unwrap()));
+    assert_eq!(block_on(serial_events.next()), expected);
+    assert_eq!(block_on(ble_events.next()), expected);
 }

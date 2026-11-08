@@ -507,31 +507,63 @@ impl AuthSource for NoAuth {
     }
 }
 
-/// Source of Wi-Fi availability changes, such as the radio being switched
-/// off and on again (serial).
-///
-/// While Wi-Fi is unavailable a serial device reports the `Stopped` state.
-/// The driver races [`next`](Self::next) against incoming commands, so a
-/// change is published as soon as it happens.
-pub trait AvailabilitySource {
-    /// Wait until availability changes and return the new value: `true` if
-    /// provisioning is possible. Must be cancel-safe.
-    async fn next(&mut self) -> bool;
+/// Something that happened outside this driver and changes what it
+/// reports.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum DeviceEvent {
+    /// Wi-Fi became available (`true`) or unavailable (`false`), for
+    /// example because the radio was switched off. While unavailable a
+    /// serial device reports the `Stopped` state.
+    Available(bool),
+    /// The device joined a network some other way, typically through
+    /// another driver on another transport, and can be reached at this URL.
+    /// An idle driver then reports `Provisioned`, so all transports agree.
+    Provisioned(Option<Url>),
 }
 
-/// Availability never changes: the default.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct AlwaysAvailable;
+/// Source of [`DeviceEvent`]s for a driver.
+///
+/// The driver races [`next`](Self::next) against incoming commands, so an
+/// event is published to the client as soon as it happens. Combine two
+/// sources with a tuple: `(a, b)` yields whichever has an event first.
+pub trait EventSource {
+    /// Wait for the next event. Must be cancel-safe.
+    async fn next(&mut self) -> DeviceEvent;
+}
 
-impl AvailabilitySource for AlwaysAvailable {
-    async fn next(&mut self) -> bool {
+/// No events: the default.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoEvents;
+
+impl EventSource for NoEvents {
+    async fn next(&mut self) -> DeviceEvent {
         core::future::pending().await
     }
 }
 
-impl<T: AvailabilitySource + ?Sized> AvailabilitySource for &mut T {
-    async fn next(&mut self) -> bool {
+impl<T: EventSource + ?Sized> EventSource for &mut T {
+    async fn next(&mut self) -> DeviceEvent {
         (**self).next().await
+    }
+}
+
+impl<A: EventSource, B: EventSource> EventSource for (A, B) {
+    /// Whichever source has an event first; `A` wins a tie. Cancel-safe
+    /// because both sources are.
+    async fn next(&mut self) -> DeviceEvent {
+        use core::future::Future as _;
+        let (a, b) = self;
+        let mut a = core::pin::pin!(a.next());
+        let mut b = core::pin::pin!(b.next());
+        core::future::poll_fn(|cx| {
+            if let core::task::Poll::Ready(e) = a.as_mut().poll(cx) {
+                return core::task::Poll::Ready(e);
+            }
+            b.as_mut().poll(cx)
+        })
+        .await
     }
 }
 

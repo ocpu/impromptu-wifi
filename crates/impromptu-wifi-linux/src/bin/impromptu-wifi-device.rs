@@ -15,8 +15,9 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use clap::Parser;
 use impromptu_wifi_ble::BleLink;
-use impromptu_wifi_core::{Driver, NoAuth};
+use impromptu_wifi_core::{Driver, NoAuth, NotifyOnJoin};
 use impromptu_wifi_linux::bluez::{Adapter, BluezGatt};
+use impromptu_wifi_linux::join::{join_channel, JoinSender};
 use impromptu_wifi_linux::nm::{NmRadio, NmWifi};
 use impromptu_wifi_linux::{hostname::LinuxDevice, serial};
 use impromptu_wifi_serial::SerialLink;
@@ -105,16 +106,23 @@ async fn serve(args: Args) -> Result<std::convert::Infallible> {
         .await
         .context("using systemd-hostnamed")?;
 
-    // Each transport owns clones of the backends.
-    let ble = args
-        .ble
-        .then(|| tokio::spawn(serve_ble(bus.clone(), wifi.clone(), device.clone())));
+    // Each transport owns clones of the backends. Joins made through either
+    // are announced to the other, so both report the same state.
+    let (joined, _) = join_channel();
+    let ble = args.ble.then(|| {
+        tokio::spawn(serve_ble(
+            bus.clone(),
+            wifi.clone(),
+            device.clone(),
+            joined.clone(),
+        ))
+    });
     match args.serial {
         Some(path) => {
             let radio = NmRadio::new(&bus)
                 .await
                 .context("watching the Wi-Fi radio switch")?;
-            serve_serial(&path, args.baud, wifi, device, radio).await
+            serve_serial(&path, args.baud, wifi, device, radio, joined).await
         }
         None => match ble {
             Some(task) => task.await.context("Bluetooth task")?,
@@ -129,6 +137,7 @@ async fn serve_serial(
     mut wifi: NmWifi,
     mut device: LinuxDevice,
     mut radio: NmRadio,
+    joined: JoinSender,
 ) -> Result<std::convert::Infallible> {
     loop {
         let port = match serial::open(path, baud) {
@@ -143,14 +152,19 @@ async fn serve_serial(
         log::info!("serving Improv on {path}");
 
         let online = wifi.online_url().await;
-        let mut driver = Driver::new(SerialLink::new(port), &mut wifi, &mut device, false);
+        let mut events = joined.subscribe();
+        let notifying = NotifyOnJoin::new(&mut wifi, joined.notifier());
+        let mut driver = Driver::new(SerialLink::new(port), notifying, &mut device, false);
         if let Some(url) = online {
             driver.mark_provisioned(url);
         }
         // While the radio is off, serial clients see the Stopped state.
         driver.machine_mut().set_available(radio.enabled());
-        // `run_with` only returns when the link fails.
-        let Err(e) = driver.run_with(&mut NoAuth, &mut radio).await;
+        // `run_with` only returns when the link fails. Radio changes and
+        // joins made over Bluetooth both reach the serial client.
+        let Err(e) = driver
+            .run_with(&mut NoAuth, &mut (&mut radio, &mut events))
+            .await;
         log::warn!("serial link ended: {e:?}; reopening");
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
@@ -160,6 +174,7 @@ async fn serve_ble(
     bus: zbus::Connection,
     mut wifi: NmWifi,
     mut device: LinuxDevice,
+    joined: JoinSender,
 ) -> Result<std::convert::Infallible> {
     let adapter = Adapter::first(&bus)
         .await
@@ -177,11 +192,15 @@ async fn serve_ble(
         let gatt = BluezGatt::start(&bus, &adapter, caps)
             .await
             .context("registering the Improv service")?;
-        let mut driver = Driver::new(BleLink::new(gatt, caps), &mut wifi, &mut device, false);
-        match driver.provision(&mut NoAuth).await {
+        let mut events = joined.subscribe();
+        let notifying = NotifyOnJoin::new(&mut wifi, joined.notifier());
+        let mut driver = Driver::new(BleLink::new(gatt, caps), notifying, &mut device, false);
+        // Returns once provisioned over Bluetooth, or once a serial client
+        // provisioned the machine: either way Bluetooth should stop.
+        match driver.provision_with(&mut NoAuth, &mut events).await {
             Ok(url) => {
                 log::info!(
-                    "provisioned over Bluetooth{}",
+                    "provisioned{}",
                     url.map(|u| format!("; reachable at {u}"))
                         .unwrap_or_default()
                 );

@@ -8,8 +8,8 @@ use embedded_io_async::{ErrorType, Read, Write};
 use impromptu_wifi_core::proto::serial::{encode_packet, Feed, Framer, PacketType};
 use impromptu_wifi_core::proto::{Command, ErrorCode, RawRpc, State, Transport};
 use impromptu_wifi_core::{
-    unsupported, ConnectError, DeviceInfoSource, Driver, NetworkInfo, NoAuth, ScanError, Url,
-    WifiAuth, WifiConnect, WifiScanner,
+    unsupported, ConnectError, DeviceEvent, DeviceInfoSource, Driver, EventSource, NetworkInfo,
+    NoAuth, NoEvents, NotifyOnJoin, ScanError, Url, WifiAuth, WifiConnect, WifiScanner,
 };
 use impromptu_wifi_serial::{SerialError, SerialLink};
 
@@ -271,16 +271,20 @@ impl Write for Waiting {
     }
 }
 
-/// Reports one availability change per step, then nothing.
-struct Toggles(std::collections::VecDeque<bool>);
+/// Reports the queued events, one per call, then nothing.
+struct Events(std::collections::VecDeque<DeviceEvent>);
 
-impl impromptu_wifi_core::AvailabilitySource for Toggles {
-    async fn next(&mut self) -> bool {
+impl EventSource for Events {
+    async fn next(&mut self) -> DeviceEvent {
         match self.0.pop_front() {
-            Some(v) => v,
+            Some(e) => e,
             None => core::future::pending().await,
         }
     }
+}
+
+fn radio_switch(on: bool) -> Events {
+    Events([DeviceEvent::Available(on)].into())
 }
 
 #[test]
@@ -292,7 +296,7 @@ fn radio_off_reports_stopped_and_refuses_credentials() {
     let mut driver = Driver::new(link, FakeWifi, FakeDevice, false);
 
     // The radio goes off while the device is idle.
-    let mut radio = Toggles([false].into());
+    let mut radio = radio_switch(false);
     block_on(driver.step_with(&mut NoAuth, &mut radio)).unwrap();
     assert_eq!(driver.machine().state(), State::Stopped);
 
@@ -307,11 +311,11 @@ fn radio_off_reports_stopped_and_refuses_credentials() {
     io.input.extend(packet);
     let mut driver = Driver::new(SerialLink::new(io), wifi, device, false);
     driver.machine_mut().set_available(false);
-    block_on(driver.step_with(&mut NoAuth, &mut Toggles(Default::default()))).unwrap();
+    block_on(driver.step_with(&mut NoAuth, &mut Events(Default::default()))).unwrap();
     assert_eq!(driver.machine().error(), ErrorCode::Unknown);
 
     // The radio comes back.
-    block_on(driver.step_with(&mut NoAuth, &mut Toggles([true].into()))).unwrap();
+    block_on(driver.step_with(&mut NoAuth, &mut radio_switch(true))).unwrap();
     assert_eq!(driver.machine().state(), State::Authorized);
 
     let (link, _, _) = driver.into_parts();
@@ -321,5 +325,69 @@ fn radio_off_reports_stopped_and_refuses_credentials() {
         seen.last(),
         Some(&Seen::State(State::Authorized)),
         "{seen:?}"
+    );
+}
+
+#[test]
+fn provisioned_elsewhere_is_reported_and_answered() {
+    let link = SerialLink::new(Waiting {
+        input: Default::default(),
+        output: Vec::new(),
+    });
+    let mut driver = Driver::new(link, FakeWifi, FakeDevice, false);
+    let url = Url::try_from("http://192.168.1.50").unwrap();
+
+    // Another transport provisioned the device while this one was idle.
+    let mut elsewhere = Events([DeviceEvent::Provisioned(Some(url.clone()))].into());
+    block_on(driver.step_with(&mut NoAuth, &mut elsewhere)).unwrap();
+    assert_eq!(driver.machine().state(), State::Provisioned);
+
+    // A client asking for the state now hears "provisioned" with the URL,
+    // as after a provisioning on this transport.
+    let (link, wifi, device) = driver.into_parts();
+    let mut io = link.into_inner();
+    io.input.extend(client_packet(Command::GetCurrentState));
+    let mut driver = Driver::new(SerialLink::new(io), wifi, device, false);
+    driver.mark_provisioned(Some(url));
+    block_on(driver.step_with(&mut NoAuth, &mut NoEvents)).unwrap();
+
+    let (link, _, _) = driver.into_parts();
+    let seen = decode_output(&link.into_inner().output);
+    assert!(seen.contains(&Seen::State(State::Provisioned)), "{seen:?}");
+    assert_eq!(
+        seen.last(),
+        Some(&Seen::Result(0x01, strings(&["http://192.168.1.50"]))),
+        "{seen:?}"
+    );
+}
+
+#[test]
+fn notify_on_join_reports_successful_joins_only() {
+    let mut joined = Vec::new();
+    {
+        let mut wifi = NotifyOnJoin::new(FakeWifi, |url: &Option<Url>| {
+            joined.push(url.as_deref().map(String::from));
+        });
+        assert!(block_on(wifi.connect("home", "wrong")).is_err());
+        assert!(block_on(wifi.connect("home", "hunter22")).is_ok());
+    }
+    assert_eq!(joined, [Some(String::from("http://192.168.1.50"))]);
+
+    const { assert!(<NotifyOnJoin<FakeWifi, fn(&Option<Url>)> as WifiScanner>::SUPPORTED) };
+}
+
+#[test]
+fn a_pair_of_event_sources_yields_from_either() {
+    let mut pair = (
+        Events(Default::default()),
+        Events([DeviceEvent::Available(false)].into()),
+    );
+    assert_eq!(block_on(pair.next()), DeviceEvent::Available(false));
+    pair.0 .0.push_back(DeviceEvent::Provisioned(None));
+    pair.1 .0.push_back(DeviceEvent::Available(true));
+    assert_eq!(
+        block_on(pair.next()),
+        DeviceEvent::Provisioned(None),
+        "the first source wins a tie"
     );
 }

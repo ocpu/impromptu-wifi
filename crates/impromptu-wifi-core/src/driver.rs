@@ -8,9 +8,9 @@ use impromptu_wifi_proto::{
     command_id, Command, EncodeError, ErrorCode, RawRpc, ResultWriter, State, Transport,
 };
 use impromptu_wifi_traits::{
-    AlwaysAvailable, AuthEvent, AuthSource, AvailabilitySource, ConnectError, DeviceInfoSource,
-    DeviceNameError, HostnameError, HostnameProvider, Identify, NetworkInfo, NetworkStatus, Url,
-    WifiAuth, WifiConnect, WifiScanner,
+    AuthEvent, AuthSource, ConnectError, DeviceEvent, DeviceInfoSource, DeviceNameError,
+    EventSource, HostnameError, HostnameProvider, Identify, NetworkInfo, NetworkStatus, NoEvents,
+    Url, WifiAuth, WifiConnect, WifiScanner,
 };
 
 use crate::link::Link;
@@ -113,18 +113,19 @@ where
         &mut self,
         auth: &mut A,
     ) -> Result<Option<Url>, L::Error> {
-        self.provision_with(auth, &mut AlwaysAvailable).await
+        self.provision_with(auth, &mut NoEvents).await
     }
 
-    /// [`provision`](Self::provision), also following Wi-Fi availability
-    /// changes from `availability` (see [`run_with`](Self::run_with)).
-    pub async fn provision_with<A: AuthSource, V: AvailabilitySource>(
+    /// [`provision`](Self::provision), also following [`DeviceEvent`]s from
+    /// `events` (see [`run_with`](Self::run_with)). Returns when another
+    /// driver reports that it provisioned the device, too.
+    pub async fn provision_with<A: AuthSource, E: EventSource>(
         &mut self,
         auth: &mut A,
-        availability: &mut V,
+        events: &mut E,
     ) -> Result<Option<Url>, L::Error> {
         loop {
-            self.step_with(auth, availability).await?;
+            self.step_with(auth, events).await?;
             if self.machine.state() == State::Provisioned {
                 return Ok(self.url.clone());
             }
@@ -133,51 +134,54 @@ where
 
     /// Serve commands until the link fails.
     pub async fn run<A: AuthSource>(&mut self, auth: &mut A) -> Result<Infallible, L::Error> {
-        self.run_with(auth, &mut AlwaysAvailable).await
+        self.run_with(auth, &mut NoEvents).await
     }
 
-    /// [`run`](Self::run), also following Wi-Fi availability changes from
-    /// `availability`. On serial, unavailable Wi-Fi is reported as
-    /// [`State::Stopped`] (see [`Machine::set_available`]); set the initial
-    /// value with [`machine_mut`](Self::machine_mut) before starting.
-    pub async fn run_with<A: AuthSource, V: AvailabilitySource>(
+    /// [`run`](Self::run), also following [`DeviceEvent`]s from `events`:
+    ///
+    /// * [`DeviceEvent::Available`]: on serial, unavailable Wi-Fi is reported
+    ///   as [`State::Stopped`] (see [`Machine::set_available`]). Set the
+    ///   initial value with [`machine_mut`](Self::machine_mut) first.
+    /// * [`DeviceEvent::Provisioned`]: another driver joined a network, so an
+    ///   idle driver reports [`State::Provisioned`] too, as
+    ///   [`mark_provisioned`](Self::mark_provisioned) does.
+    pub async fn run_with<A: AuthSource, E: EventSource>(
         &mut self,
         auth: &mut A,
-        availability: &mut V,
+        events: &mut E,
     ) -> Result<Infallible, L::Error> {
         loop {
-            self.step_with(auth, availability).await?;
+            self.step_with(auth, events).await?;
         }
     }
 
     /// Publish pending updates, handle one command or authorization event,
     /// and publish again.
     pub async fn step<A: AuthSource>(&mut self, auth: &mut A) -> Result<(), L::Error> {
-        self.step_with(auth, &mut AlwaysAvailable).await
+        self.step_with(auth, &mut NoEvents).await
     }
 
-    /// [`step`](Self::step), where an availability change also counts as an
-    /// event.
-    pub async fn step_with<A: AuthSource, V: AvailabilitySource>(
+    /// [`step`](Self::step), where a [`DeviceEvent`] also counts as an event.
+    pub async fn step_with<A: AuthSource, E: EventSource>(
         &mut self,
         auth: &mut A,
-        availability: &mut V,
+        events: &mut E,
     ) -> Result<(), L::Error> {
         publish(&mut self.link, &mut self.machine).await?;
-        match select3(
-            self.link.recv(&mut self.rx),
-            auth.next(),
-            availability.next(),
-        )
-        .await
-        {
+        match select3(self.link.recv(&mut self.rx), auth.next(), events.next()).await {
             Either3::First(received) => match received? {
                 Some(len) => self.handle(len).await?,
                 None => self.machine.on_rpc_error(ErrorCode::InvalidRpc),
             },
             Either3::Second(AuthEvent::Authorize) => self.machine.authorize(),
             Either3::Second(AuthEvent::Revoke) => self.machine.revoke(),
-            Either3::Third(available) => self.machine.set_available(available),
+            Either3::Third(DeviceEvent::Available(available)) => {
+                self.machine.set_available(available)
+            }
+            Either3::Third(DeviceEvent::Provisioned(url)) => self.mark_provisioned(url),
+            // `DeviceEvent` is non-exhaustive: ignore events this version
+            // doesn't know.
+            Either3::Third(_) => {}
         }
         if self.machine.take_auth_restart() {
             auth.restart_timeout();

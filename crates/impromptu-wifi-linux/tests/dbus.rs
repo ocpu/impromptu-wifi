@@ -841,3 +841,55 @@ async fn radio_switch_is_reported_as_stopped_over_serial() {
     let url = client.provision("home", "hunter22").await.unwrap();
     assert_eq!(url.as_deref(), Some("http://192.168.1.50"));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_join_on_one_transport_is_reported_on_the_other() {
+    use impromptu_wifi_core::NotifyOnJoin;
+    use impromptu_wifi_linux::join::join_channel;
+
+    let bus = private_bus().await;
+    let (_world, _svc) = services(&bus, home_world()).await;
+    let conn = connect(&bus).await;
+    let nm = NmWifi::new(conn.clone(), None).await.unwrap();
+    let dev = LinuxDevice::new(&conn, "my-fw", "1.2.3").await.unwrap();
+    let (joined, _) = join_channel();
+
+    // Two drivers, as the daemon runs for serial and Bluetooth; both are
+    // serial here so one test client type serves both.
+    let mut clients = Vec::new();
+    for _ in 0..2 {
+        let (device_end, client_end) = tokio::io::duplex(4096);
+        let wifi = NotifyOnJoin::new(nm.clone(), joined.notifier());
+        let mut events = joined.subscribe();
+        let dev = dev.clone();
+        tokio::spawn(async move {
+            let mut driver = Driver::new(
+                SerialLink::new(FromTokio::new(device_end)),
+                wifi,
+                dev,
+                false,
+            );
+            let _ = driver.run_with(&mut NoAuth, &mut events).await;
+        });
+        clients.push(Client::new(SerialClientLink::new(FromTokio::new(
+            client_end,
+        ))));
+    }
+    let [mut a, mut b] = <[_; 2]>::try_from(clients).ok().unwrap();
+    assert_eq!(b.current_state().await.unwrap(), State::Authorized);
+
+    let url = a.provision("home", "hunter22").await.unwrap();
+    assert_eq!(url.as_deref(), Some("http://192.168.1.50"));
+
+    // The other transport's client hears about it without asking...
+    tokio::time::timeout(Duration::from_secs(2), b.wait_for_state(State::Provisioned))
+        .await
+        .expect("Provisioned was pushed to the other transport")
+        .unwrap();
+    // ...and asking again gives the same answer; the URL went to both.
+    assert_eq!(b.current_state().await.unwrap(), State::Provisioned);
+    assert_eq!(
+        joined.last().flatten().as_deref(),
+        Some("http://192.168.1.50")
+    );
+}

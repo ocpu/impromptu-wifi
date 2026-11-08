@@ -26,8 +26,8 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use impromptu_wifi_core::traits::{
-    AvailabilitySource, ConnectError, NetworkFlags, NetworkInfo, NetworkStatus, ScanError, Url,
-    WifiAuth, WifiConnect, WifiScanner,
+    ConnectError, DeviceEvent, EventSource, NetworkFlags, NetworkInfo, NetworkStatus, ScanError,
+    Url, WifiAuth, WifiConnect, WifiScanner,
 };
 use zbus::proxy::CacheProperties;
 use zbus::zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Value};
@@ -212,7 +212,8 @@ async fn root(conn: &Connection) -> zbus::Result<NetworkManagerProxy<'static>> {
 }
 
 /// Whether NetworkManager's Wi-Fi radio is switched on (its
-/// `WirelessEnabled` property), as an [`AvailabilitySource`].
+/// `WirelessEnabled` property), as an [`EventSource`] of
+/// [`DeviceEvent::Available`].
 ///
 /// Pass it to [`Driver::run_with`](impromptu_wifi_core::Driver::run_with)
 /// so a serial client sees the `Stopped` state while Wi-Fi is off (for
@@ -252,15 +253,15 @@ impl NmRadio {
     }
 }
 
-impl AvailabilitySource for NmRadio {
-    async fn next(&mut self) -> bool {
+impl EventSource for NmRadio {
+    async fn next(&mut self) -> DeviceEvent {
         // Cancel-safe: the only await is the stream's, and a change that
         // arrived while this future wasn't polled is still in the cache.
         loop {
             let now = self.enabled();
             if now != self.reported {
                 self.reported = now;
-                return now;
+                return DeviceEvent::Available(now);
             }
             if self.changes.next().await.is_none() {
                 // NetworkManager went away; report no further changes.

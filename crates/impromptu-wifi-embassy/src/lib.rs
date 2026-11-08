@@ -43,7 +43,7 @@ pub mod trouble;
 pub mod usb;
 
 pub use auth::ButtonAuth;
-pub use shared::SharedWifi;
+pub use shared::{JoinEvents, SharedWifi, WifiShare};
 
 pub use impromptu_wifi_ble::{BleClientLink, BleLink};
 pub use impromptu_wifi_client::Client;
