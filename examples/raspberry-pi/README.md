@@ -60,7 +60,7 @@ down; see [When Bluetooth is offered](#when-bluetooth-is-offered).
 | NetworkManager backend: installs `network-manager` and switches the Pi to it with `raspi-config nonint do_netconf 2` (Raspberry Pi OS 11 and older); disables `dhcpcd` | The daemon joins networks through NetworkManager. Debian's `NetworkManager.service` declares `Conflicts=dhcpcd.service`, so the two can't share the interfaces across a reboot |
 | wpa_supplicant backend: adds the service user to `netdev`; checks that `wpa_supplicant.conf` has `ctrl_interface=... GROUP=netdev` and `update_config=1` | The daemon uses wpa_supplicant's control socket, the one `wpa_cli` uses, and saves joined networks with `SAVE_CONFIG` |
 | Starts `bluetoothd` with `--noplugin=midi` (a systemd drop-in) | BlueZ's MIDI plugin reads a connecting client's BLE-MIDI service, which needs encryption. Linux desktops with PipeWire offer one; when they refuse to pair, BlueZ drops the link a few seconds into the session |
-| Sets `LEMinAdvertisementInterval=160` and `LEMaxAdvertisementInterval=240` in `/etc/bluetooth/main.conf` | 100 to 150 ms instead of 1.28 s. BlueZ before 5.56 ignores the interval the daemon asks for. With the default, a 5-second scan missed a Pi Zero W about one time in three |
+| Sets `LEMinAdvertisementInterval=160` and `LEMaxAdvertisementInterval=240` in `/etc/bluetooth/main.conf`, where that file has them (BlueZ 5.55) | 100 to 150 ms instead of 1.28 s. BlueZ before 5.56 ignores the interval the daemon asks for. With the default, a 5-second scan missed a Pi Zero W about one time in three. Later BlueZ (5.82 on Raspberry Pi OS 13) uses the daemon's interval |
 | Installs the daemon, a system user `impromptu-wifi`, a polkit grant, and the systemd unit with a drop-in for the transports | See `crates/impromptu-wifi-linux/dist/README.md`. polkit 0.105 (Raspberry Pi OS 11) reads `.pkla` files, later versions JavaScript `.rules` |
 
 Switching to NetworkManager keeps existing Wi-Fi settings only if
@@ -126,8 +126,31 @@ adapter:
   `wpa_supplicant.conf`, replacing the older entry for the SSID; after a
   reboot, dhcpcd's wpa_supplicant rejoined it and NetworkManager stayed off.
 
-Not tested: the Pi 3B, 4 and 5, Raspberry Pi OS 12 (bookworm) and later,
-serial, and provisioning from Home Assistant or a phone.
+On 2026-11-08, on a Raspberry Pi 5 Model B Rev 1.0 with Raspberry Pi OS 13
+(trixie, 2025-10-01 image, desktop), BlueZ 5.82, NetworkManager 1.52, reached
+over Ethernet:
+
+* `setup.sh --country SE --ble --ignore-wired`: NetworkManager was already in
+  use, so the network setup was left as it was.
+* With Wi-Fi disconnected (`nmcli device disconnect wlan0`), the daemon
+  advertised at the 100-150 ms it asks for.
+* Home Assistant (Improv via BLE, through an ESPHome Bluetooth proxy)
+  provisioned it: joined in 7 s, Bluetooth stopped 5 s later.
+
+Not tested: the Pi 3B and 4, Raspberry Pi OS 12 (bookworm), serial, and
+provisioning from a phone.
+
+### Known issue: a laptop's MediaTek Bluetooth and the Pi 5
+
+From one laptop (MediaTek Bluetooth `0e8d:0717`, BlueZ 5.87) every
+connection to the Pi 5 dropped within 1-2 seconds, with Connection Timeout
+(0x08) on the Pi: the laptop stopped answering shortly after the two had
+switched to longer packets (LE Data Length Extension). The `impromptu-wifi`
+CLI then fails with "timed out connecting" or ATT error 0x0e. It is not the
+Pi 5 alone: from the Pi Zero W (BlueZ 5.55) the link held, and Home
+Assistant's ESP32 proxy provisioned it. It is not power or USB interference
+either: the drops stayed the same on the Pi's own power supply, and with its
+Wi-Fi off. If a client shows this, provision from another one.
 
 ### A pitfall found on the way
 
