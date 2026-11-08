@@ -1,3 +1,4 @@
 target/
 /.remember/
 **/*.rs.bk
+__pycache__/

@@ -9,7 +9,9 @@ use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, Subcommand};
 use impromptu_wifi_client::proto::ble::Capabilities;
 use impromptu_wifi_client::proto::{ErrorCode, State};
-use impromptu_wifi_client::{Client, ClientError, ClientLink, ScannedNetwork};
+use impromptu_wifi_client::{
+    diagnose_join_failure, Client, ClientError, ClientLink, JoinFailure, ScannedNetwork, LONG_SCAN,
+};
 use impromptu_wifi_host::{ble, serial, BleClientLink, SerialClientLink};
 
 #[derive(Parser)]
@@ -275,76 +277,57 @@ where
     Ok(())
 }
 
-/// A scan this long may be cut short by the device: this crate's driver
-/// reports at most 16 networks, the strongest.
-const LONG_SCAN: usize = 16;
-
 /// How long a scan after a failed join may take.
 const SCAN_TIME: Duration = Duration::from_secs(20);
 
 /// Explain a failed join from a scan made right after it: `None` if the
 /// device couldn't scan.
 fn join_failure(ssid: &str, password: &str, scan: Option<&[ScannedNetwork]>) -> anyhow::Error {
-    let Some(networks) = scan else {
-        return anyhow!(
+    match diagnose_join_failure(ssid, !password.is_empty(), scan) {
+        JoinFailure::NoScan => anyhow!(
             "the device could not join \"{ssid}\"\n\
              Check the network name (it is case-sensitive) and the passphrase. \
              Many devices, including most ESP32 chips, need a 2.4 GHz network, \
              and some can't join WPA3-only networks."
-        );
-    };
-    let Some(network) = networks.iter().find(|n| n.ssid.as_str() == ssid) else {
-        let similar = networks
-            .iter()
-            .find(|n| n.ssid.trim().eq_ignore_ascii_case(ssid.trim()));
-        let mut hint = match similar {
-            Some(n) => format!(" It does see \"{}\": is that the one?", n.ssid),
-            None => String::new(),
-        };
-        if networks.len() >= LONG_SCAN {
-            hint.push_str(&format!(
-                " The scan listed {} networks; devices often report only their \
-                 strongest ones, so a weak network can be missing from it.",
-                networks.len()
-            ));
+        ),
+        JoinFailure::NotSeen { similar, scanned } => {
+            let mut hint = match similar {
+                Some(n) => format!(" It does see \"{}\": is that the one?", n.ssid),
+                None => String::new(),
+            };
+            if scanned >= LONG_SCAN {
+                hint.push_str(&format!(
+                    " The scan listed {scanned} networks; devices often report only their \
+                     strongest ones, so a weak network can be missing from it."
+                ));
+            }
+            anyhow!(
+                "the device could not join \"{ssid}\": it can't see that network\n\
+                 Check that the name is exact (it is case-sensitive), that the network is \
+                 in range, and that it offers 2.4 GHz: many devices, including most ESP32 \
+                 chips, have no 5 GHz radio.{hint}"
+            )
         }
-        return anyhow!(
-            "the device could not join \"{ssid}\": it can't see that network\n\
-             Check that the name is exact (it is case-sensitive), that the network is \
-             in range, and that it offers 2.4 GHz: many devices, including most ESP32 \
-             chips, have no 5 GHz radio.{hint}"
-        );
-    };
-    let seen = format!("seen at {} dBm", network.rssi_dbm);
-    if !network.requires_passphrase && !password.is_empty() {
-        return anyhow!(
-            "the device could not join \"{ssid}\" ({seen})\n\
+        JoinFailure::OpenButPassphraseSent { rssi_dbm } => anyhow!(
+            "the device could not join \"{ssid}\" (seen at {rssi_dbm} dBm)\n\
              The network is open, but a passphrase was sent. Try again with --open."
-        );
-    }
-    if network.requires_passphrase && password.is_empty() {
-        return anyhow!(
-            "the device could not join \"{ssid}\" ({seen})\n\
+        ),
+        JoinFailure::PassphraseMissing { rssi_dbm } => anyhow!(
+            "the device could not join \"{ssid}\" (seen at {rssi_dbm} dBm)\n\
              The network needs a passphrase, and none was sent."
-        );
-    }
-    let wpa3_only = network
-        .auth
-        .as_deref()
-        .is_some_and(|a| a.contains("WPA3") && !a.contains("WPA2"));
-    if wpa3_only {
-        return anyhow!(
-            "the device could not join \"{ssid}\" ({seen}, WPA3 only)\n\
+        ),
+        JoinFailure::Wpa3Only { rssi_dbm } => anyhow!(
+            "the device could not join \"{ssid}\" (seen at {rssi_dbm} dBm, WPA3 only)\n\
              Check the passphrase. Some devices can't join WPA3-only networks; if the \
              passphrase is right, switch the network to WPA2/WPA3 or WPA2."
-        );
+        ),
+        JoinFailure::Rejected { rssi_dbm } => anyhow!(
+            "the device could not join \"{ssid}\" (seen at {rssi_dbm} dBm)\n\
+             Check the passphrase. If it is right, check the network's security mode: \
+             some devices, including ESP32 firmware built on esp-radio, can't join \
+             WPA3-only networks, so try WPA2/WPA3 or WPA2."
+        ),
     }
-    anyhow!(
-        "the device could not join \"{ssid}\" ({seen})\n\
-         Check the passphrase. If it is right, check the network's security mode: \
-         some devices, including ESP32 firmware built on esp-radio, can't join \
-         WPA3-only networks, so try WPA2/WPA3 or WPA2."
-    )
 }
 
 /// Run `fut` with a deadline, turning client errors into readable ones.

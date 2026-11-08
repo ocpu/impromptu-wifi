@@ -29,11 +29,13 @@
 #![allow(async_fn_in_trait)]
 
 mod client;
+mod diagnose;
 mod link;
 pub mod session;
 mod types;
 
 pub use client::{Client, ClientError};
+pub use diagnose::{diagnose_join_failure, JoinFailure, LONG_SCAN};
 pub use link::{ClientLink, Incoming};
 pub use types::{DeviceInfo, NetworkState, ScannedNetwork, Text, MAX_TEXT};
 

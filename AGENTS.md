@@ -41,7 +41,7 @@ Other checks CI runs:
 - `no_std`: build the `NO_STD_CRATES` (see ci.yml) and `impromptu-wifi-embassy`
   for `thumbv6m-none-eabi`, `thumbv7em-none-eabihf`, `riscv32imac-unknown-none-elf`.
   `trouble`/`trouble-central` don't build on thumbv6m (no atomic CAS).
-- MSRV: 1.87 for the `no_std` crates, 1.91 for embassy, host, cli and linux
+- MSRV: 1.87 for the `no_std` crates, 1.91 for embassy, host, cli, linux and web
   (`cargo +1.87 check ...`, args in the `msrv` job).
 - Raspberry Pi daemon builds (static musl, linked by `rust-lld` via
   `.cargo/config.toml`, no cross toolchain needed):
@@ -50,6 +50,16 @@ Other checks CI runs:
 - ESP32-S3 example (`examples/esp32s3`, own `Cargo.lock`, own
   `rust-toolchain.toml` selecting the Espressif `esp` toolchain with
   `build-std`): `cd examples/esp32s3 && . ~/export-esp.sh && cargo clippy --locked --release -- -D warnings && cargo build --locked --release`.
+- Web client (`web` job): `RUSTFLAGS=--cfg=web_sys_unstable_apis cargo clippy --locked -p impromptu-wifi-web --target wasm32-unknown-unknown -- -D warnings`.
+  `web-sys` exposes Web Serial and Web Bluetooth only with that cfg; without
+  it (every host job) the crate builds only its host-testable modules.
+- Site (`.github/workflows/pages.yml`, deployed from `main` to
+  <https://ocpu.github.io/impromptu-wifi/>): `scripts/build-site.sh` builds
+  `site/` (landing page and browser client), the wasm package (needs
+  `wasm-bindgen-cli` at the `wasm-bindgen` version in `Cargo.lock`) and the
+  docs with mdBook 0.5.4 from `scripts/stage-docs.py`, which fails on broken
+  links. Tests: `python3 -I scripts/test_stage_docs.py`. Preview:
+  `python3 -m http.server -d target/site`.
 
 ## Dependency rules
 
@@ -92,7 +102,10 @@ allocate nothing (fixed buffers, `heapless`).
   esp-radio), `impromptu-wifi-linux` (device: NetworkManager `nm`,
   wpa_supplicant control socket `wpa`, hostnamed, BlueZ peripheral, and the
   `impromptu-wifi-device` daemon), `impromptu-wifi-host` (client: serial, BLE via
-  BlueZ/zbus on Linux, btleplug elsewhere), `impromptu-wifi-cli`.
+  BlueZ/zbus on Linux, btleplug elsewhere), `impromptu-wifi-cli`,
+  `impromptu-wifi-web` (browser client: Web Serial as an `embedded-io-async`
+  stream, Web Bluetooth as a `GattClient`, one `Device` class exported with
+  `wasm-bindgen`; not in the facade).
 - `impromptu-wifi`: facade crate; features select layers (no defaults).
 
 Cross-cutting behavior that spans several files:

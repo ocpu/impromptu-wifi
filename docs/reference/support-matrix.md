@@ -76,6 +76,9 @@ Tools and apps that provision a device.
 | `impromptu-wifi` CLI | macOS, Windows (BLE through btleplug) | Built | Built | **Built** (lint only) |
 | Home Assistant, Improv via BLE | Through an ESPHome Bluetooth proxy | - | **Tested** (ESP32-S3, Pi 4, Pi 5) | **Tested**; restart Home Assistant after a device's GATT layout changes |
 | ESP Web Tools (improv-wifi.com) | Firefox with Web Serial | **Tested** (ESP32-S3) | - | **Tested** |
+| Browser client (`impromptu-wifi-web`, project site) | Firefox on Linux (Web Serial only) | Built | - | **Built** |
+| Browser client (`impromptu-wifi-web`, project site) | Chrome on Android | Built | Built | **Built** |
+| Browser client (`impromptu-wifi-web`, project site) | Chrome or Edge on desktop Linux, macOS, Windows | Built | Built | **Built** |
 | Phones (Android, iOS) | - | - | - | **Untested** |
 | Firmware as a client (`impromptu-wifi-client`, `trouble-central`) | `no_std` targets | Built | Built | **Built** |
 
@@ -89,7 +92,8 @@ Tools and apps that provision a device.
 | `thumbv7em-none-eabihf`, `riscv32imac-unknown-none-elf` | `no_std` crates, embassy with all features | **Built** |
 | `xtensa-esp32s3-none-elf` | `examples/esp32s3` | **Built** and **Tested** |
 | `arm-unknown-linux-musleabihf`, `armv7-unknown-linux-musleabihf`, `aarch64-unknown-linux-musl` | `impromptu-wifi-device` | **Built**; ARMv6 and AArch64 **Tested** |
-| Minimum Rust | 1.87 for the `no_std` crates; 1.91 for embassy, host, CLI and Linux | **Built** |
+| `wasm32-unknown-unknown` | `impromptu-wifi-web` (with `--cfg=web_sys_unstable_apis`) | **Built** |
+| Minimum Rust | 1.87 for the `no_std` crates; 1.91 for embassy, host, CLI, Linux and web | **Built** |
 
 ## Known issues
 

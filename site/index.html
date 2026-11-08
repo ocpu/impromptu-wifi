@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>impromptu-wifi</title>
+  <meta name="description" content="An independent Rust implementation of the Improv Wi-Fi standard, with a browser client for Web Serial and Web Bluetooth.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M2 9a15 15 0 0 1 20 0M5.5 12.5a10 10 0 0 1 13 0M9 16a5 5 0 0 1 6 0"/><circle cx="12" cy="19.5" r="1"/></symbol>
+    <symbol id="i-usb" viewBox="0 0 24 24"><path d="M12 2v14M8 6l4-4 4 4"/><rect x="7" y="16" width="10" height="6" rx="1.5"/><path d="M7 11H5v3M17 9h2v3"/></symbol>
+    <symbol id="i-bt" viewBox="0 0 24 24"><path d="M7 7l10 10-5 5V2l5 5L7 17"/></symbol>
+    <symbol id="i-bt-off" viewBox="0 0 24 24"><path d="M7 7l10 10-5 5V2l5 5L7 17M3 3l18 18"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 11v6M12 7.5v.01"/></symbol>
+    <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 3l10 18H2zM12 10v5M12 18v.01"/></symbol>
+    <symbol id="i-x-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7M21 4v5h-5"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24"><path d="M7 17L17 7M8 7h9v9"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+  </svg>
+
+  <header class="top">
+    <nav class="nav" aria-label="Site">
+      <a class="brand" href="./"><svg class="icon accent" aria-hidden="true"><use href="#i-wifi"/></svg>impromptu-wifi</a>
+      <a class="nav-try pill" href="#try">Try it</a>
+      <button class="nav-toggle icon-button" type="button" aria-label="Menu" aria-expanded="false" aria-controls="site-menu">
+        <svg class="icon" aria-hidden="true"><use href="#i-menu"/></svg>
+      </button>
+      <div id="site-menu" class="nav-links">
+        <a href="#try">Try it</a>
+        <a href="docs/">Documentation</a>
+        <a href="docs/reference/support-matrix.html">Support matrix</a>
+        <a href="https://github.com/ocpu/impromptu-wifi">GitHub</a>
+        <div class="nav-standard">
+          <p class="eyebrow">The standard</p>
+          <a href="https://www.improv-wifi.com/">Improv Wi-Fi at improv-wifi.com</a>
+          <p class="fine">By ESPHome and Home Assistant. impromptu-wifi is independent and not affiliated.</p>
+        </div>
+      </div>
+    </nav>
+  </header>
+  <div class="nav-scrim" hidden></div>
+
+  <main class="page">
+    <section class="hero">
+      <div class="hero-text">
+        <p class="eyebrow">A Rust implementation of Improv Wi-Fi</p>
+        <h1>Put a device on Wi-Fi from your browser.</h1>
+        <p class="lead">Connect over USB or Bluetooth, pick a network, and the device joins it. Nothing to install; the passphrase goes only to the device you choose.</p>
+        <div class="row">
+          <a class="button primary" href="#try">Try it now</a>
+          <a class="button" href="docs/">Read the docs</a>
+        </div>
+      </div>
+      <aside class="card standard" aria-labelledby="improv">
+        <p class="eyebrow">The standard</p>
+        <h2 id="improv">Improv Wi-Fi</h2>
+        <p>A free and open standard for setting up Wi-Fi over Bluetooth LE or serial. An initiative by <a href="https://esphome.io/">ESPHome</a> and <a href="https://www.home-assistant.io/">Home Assistant</a>, with development funded by <a href="https://www.nabucasa.com/">Nabu Casa</a>.</p>
+        <ul class="plain">
+          <li><a href="https://www.improv-wifi.com/">improv-wifi.com</a>: specification, SDKs, adopters</li>
+          <li><a href="https://www.improv-wifi.com/ble/">Bluetooth LE specification</a></li>
+          <li><a href="https://www.improv-wifi.com/serial/">Serial specification</a></li>
+        </ul>
+        <p class="fine separated">impromptu-wifi is an independent Rust implementation. It is not affiliated with or endorsed by the Improv Wi-Fi project.</p>
+      </aside>
+    </section>
+
+    <section id="try" class="card try" aria-labelledby="try-title">
+      <div class="try-head">
+        <h2 id="try-title">Try it</h2>
+        <ol class="steps" aria-label="Steps">
+          <li data-step="1">1 Connect</li>
+          <li data-step="2">2 Choose a network</li>
+          <li data-step="3">3 Open the device</li>
+        </ol>
+      </div>
+
+      <noscript><p class="notice warn">The client needs JavaScript and WebAssembly.</p></noscript>
+      <div id="notice" class="notice" role="alert" hidden></div>
+
+      <!-- Step 1: connect -->
+      <div id="view-connect" class="view">
+        <div class="choices">
+          <button id="connect-serial" class="choice" type="button" hidden>
+            <span class="tile"><svg class="icon accent" aria-hidden="true"><use href="#i-usb"/></svg></span>
+            <span><span class="choice-title">Connect over USB</span><span class="choice-text">For a board plugged into this computer. Your browser asks which port to use.</span></span>
+          </button>
+          <button id="connect-ble" class="choice" type="button" hidden>
+            <span class="tile"><svg class="icon accent" aria-hidden="true"><use href="#i-bt"/></svg></span>
+            <span><span class="choice-title">Connect over Bluetooth</span><span class="choice-text">For a nearby device that is waiting to be set up. Your browser lists the ones in range.</span></span>
+          </button>
+        </div>
+        <p id="support" class="hint"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span></span></p>
+      </div>
+
+      <!-- Step 2: connected -->
+      <div id="view-device" class="view" hidden>
+        <div class="device-bar">
+          <span class="tile"><svg class="icon accent" aria-hidden="true"><use id="device-icon" href="#i-bt"/></svg></span>
+          <div class="device-id">
+            <span id="device-name" class="device-name"></span>
+            <span id="device-sub" class="device-sub"></span>
+          </div>
+          <span id="device-state" class="badge"></span>
+          <button id="identify" class="button" type="button" hidden>Identify</button>
+          <button id="disconnect" class="button link" type="button">Disconnect</button>
+        </div>
+
+        <div class="columns">
+          <div class="col-main">
+            <div class="section-head">
+              <h3>Networks the device can see</h3>
+              <button id="rescan" class="button small" type="button"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>Scan again</button>
+            </div>
+            <p id="scan-status" class="hint" hidden></p>
+            <ul id="networks" class="networks"></ul>
+            <p class="hint">Most small devices need a 2.4 GHz network. The device may list only its strongest networks.</p>
+          </div>
+
+          <aside class="col-side" aria-labelledby="device-title">
+            <h3 id="device-title">Device</h3>
+            <dl id="details" class="details"></dl>
+            <details id="names" class="disclosure">
+              <summary>Names</summary>
+              <div class="disclosure-body">
+                <label class="field" id="name-field">Device name
+                  <span class="input-row"><input id="name-input" autocomplete="off"><button id="name-save" class="button small" type="button">Save</button></span>
+                  <span class="field-msg" hidden></span>
+                </label>
+                <label class="field" id="hostname-field">Hostname
+                  <span class="input-row"><input id="hostname-input" autocomplete="off" spellcheck="false"><button id="hostname-save" class="button small" type="button">Save</button></span>
+                  <span class="field-msg">Letters, digits and hyphens.</span>
+                </label>
+              </div>
+            </details>
+          </aside>
+        </div>
+      </div>
+
+      <!-- Step 2b: working -->
+      <div id="view-working" class="view" hidden>
+        <h3 id="working-title"></h3>
+        <ol class="progress" aria-label="Progress">
+          <li data-stage="connected" class="done"><span class="dot"></span><span>Connected</span></li>
+          <li data-stage="authorize" hidden><span class="dot"></span><span><span class="stage-title">Press the button on the device</span><span class="stage-text">The device asks for a press before it accepts Wi-Fi settings. Waiting up to 60 s.</span></span></li>
+          <li data-stage="send"><span class="dot"></span><span>Sending the network and passphrase</span></li>
+          <li data-stage="join"><span class="dot"></span><span><span class="stage-title">The device joins the network</span><span class="stage-text">This can take up to a minute.</span></span></li>
+          <li data-stage="diagnose" hidden><span class="dot"></span><span>Joining failed; scanning to find out why</span></li>
+        </ol>
+        <div id="countdown" class="countdown" role="progressbar" aria-label="Time left to press the button" aria-valuemin="0" aria-valuemax="60" hidden><div></div></div>
+      </div>
+
+      <!-- Step 3: done -->
+      <div id="view-done" class="view" hidden>
+        <div class="success">
+          <span class="success-mark"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></span>
+          <h3 id="done-title"></h3>
+          <p id="done-text"></p>
+          <div id="done-url" class="url" hidden></div>
+          <a id="done-open" class="button primary wide" href="#" rel="noopener" hidden>Open the device<svg class="icon" aria-hidden="true"><use href="#i-external"/></svg></a>
+        </div>
+        <div class="row">
+          <button id="done-names" class="button link" type="button">Set the device name or hostname</button>
+          <button id="done-another" class="button link" type="button">Set up another device</button>
+        </div>
+      </div>
+    </section>
+
+    <section aria-labelledby="how">
+      <h2 id="how">How Improv works</h2>
+      <ol class="grid4 plain">
+        <li class="card step-card"><span class="num">01</span><span>A device without a network starts and offers Improv over Bluetooth LE, serial, or both.</span></li>
+        <li class="card step-card"><span class="num">02</span><span>A client, such as a phone, a browser or a command-line tool, sends a network name and passphrase.</span></li>
+        <li class="card step-card"><span class="num">03</span><span>The device joins the network and reports success, often with an address where it can be reached.</span></li>
+        <li class="card step-card"><span class="num">04</span><span>You open that address to finish setting up the device.</span></li>
+      </ol>
+    </section>
+
+    <section aria-labelledby="adds">
+      <h2 id="adds">What this implementation adds</h2>
+      <div class="grid2">
+        <div class="card"><h3>Both roles</h3><p>The device being set up and the client that sets it up, on one protocol core.</p></div>
+        <div class="card"><h3>Firmware</h3><p><code>no_std</code> crates without allocation, with an ESP32-S3 example.</p></div>
+        <div class="card"><h3>Linux</h3><p>A daemon that makes a Linux machine, such as a Raspberry Pi, provisionable over Bluetooth LE and serial.</p></div>
+        <div class="card"><h3>Command line and browser</h3><p>A CLI for serial and Bluetooth LE, and the client on this page.</p></div>
+      </div>
+      <p>Tested devices, systems and clients: <a href="docs/reference/support-matrix.html">support matrix</a>.</p>
+    </section>
+
+    <section aria-labelledby="docs-title">
+      <h2 id="docs-title">Documentation</h2>
+      <div class="grid3">
+        <a class="card doc" href="docs/how-to/provision-from-a-browser.html"><span>Provision from a browser</span><span class="fine">How-to</span></a>
+        <a class="card doc" href="docs/examples/esp32s3/README.html"><span>ESP32-S3 example</span><span class="fine">Firmware</span></a>
+        <a class="card doc" href="docs/examples/raspberry-pi/README.html"><span>Raspberry Pi example</span><span class="fine">Linux daemon</span></a>
+        <a class="card doc" href="docs/reference/cli.html"><span>Command-line tool</span><span class="fine">Reference</span></a>
+        <a class="card doc" href="docs/explanation/security-model.html"><span>Security model</span><span class="fine">Explanation</span></a>
+        <a class="card doc" href="docs/"><span>All documentation</span><span class="fine">Index</span></a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>impromptu-wifi is licensed under MIT OR Apache-2.0. Improv Wi-Fi is a standard by ESPHome and Home Assistant; see <a href="https://www.improv-wifi.com/">improv-wifi.com</a>.</p>
+  </footer>
+</body>
+</html>
