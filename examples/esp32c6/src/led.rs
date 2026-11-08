@@ -53,9 +53,21 @@ const WHITE: Rgb = Rgb(24, 24, 24);
 const CYAN: Rgb = Rgb(0, 20, 20);
 const RED: Rgb = Rgb(32, 0, 0);
 
+/// The order in which the LED takes its colour bytes.
+#[derive(Clone, Copy)]
+#[allow(dead_code, reason = "each board uses one of them")]
+pub enum ColorOrder {
+    /// Green, red, blue: the WS2812B datasheet order.
+    Grb,
+    /// Red, green, blue: some compatible LEDs, such as the one on an
+    /// ESP32-S3 board this example was tested on.
+    Rgb,
+}
+
 /// One WS2812 on one RMT channel.
 pub struct Ws2812 {
     channel: Channel<'static, Async, Tx>,
+    order: ColorOrder,
     /// Pulse lengths in RMT ticks: (high, low) for a 0 bit and a 1 bit.
     zero: (u16, u16),
     one: (u16, u16),
@@ -63,7 +75,7 @@ pub struct Ws2812 {
 
 impl Ws2812 {
     /// Drive the LED on `pin` from RMT channel 0.
-    pub fn new(rmt: RMT<'static>, pin: impl PeripheralOutput<'static>) -> Self {
+    pub fn new(rmt: RMT<'static>, pin: impl PeripheralOutput<'static>, order: ColorOrder) -> Self {
         let rmt = Rmt::new(rmt, Rate::from_mhz(80))
             .expect("an 80 MHz RMT clock")
             .into_async();
@@ -82,6 +94,7 @@ impl Ws2812 {
         // WS2812B datasheet: T0H 0.4 µs, T0L 0.85 µs, T1H 0.8 µs, T1L 0.45 µs.
         Self {
             channel,
+            order,
             zero: (ticks(400), ticks(850)),
             one: (ticks(800), ticks(450)),
         }
@@ -91,8 +104,12 @@ impl Ws2812 {
     /// the next frame is far behind.
     pub async fn set(&mut self, Rgb(r, g, b): Rgb) {
         let mut codes = [PulseCode::end_marker(); 25];
-        // The WS2812 takes green, red, blue, most significant bit first.
-        let bits = u32::from(g) << 16 | u32::from(r) << 8 | u32::from(b);
+        // Most significant bit first.
+        let (first, second) = match self.order {
+            ColorOrder::Grb => (g, r),
+            ColorOrder::Rgb => (r, g),
+        };
+        let bits = u32::from(first) << 16 | u32::from(second) << 8 | u32::from(b);
         for (i, code) in codes[..24].iter_mut().enumerate() {
             let (high, low) = if bits & (1 << (23 - i)) != 0 {
                 self.one

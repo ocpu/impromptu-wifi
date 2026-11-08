@@ -181,7 +181,9 @@ async fn main(spawner: Spawner) -> ! {
     spawner.spawn(keep_online_task(radio).expect("spawning the keep-online task"));
 
     // The status LED.
-    let ws2812 = led::Ws2812::new(peripherals.RMT, peripherals.GPIO38);
+    // The LED on the board this was tested on takes red first; with
+    // `Grb`, green shows as red.
+    let ws2812 = led::Ws2812::new(peripherals.RMT, peripherals.GPIO38, led::ColorOrder::Rgb);
     spawner.spawn(led_task(ws2812, radio).expect("spawning the LED task"));
 
     // BOOT: a short press authorizes BLE, a long one resets.
