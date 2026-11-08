@@ -235,3 +235,91 @@ fn unsupported_and_corrupt_commands() {
         ]
     );
 }
+
+/// Like `Script`, but waits for more input instead of reporting EOF, so an
+/// availability change can win the driver's race.
+struct Waiting {
+    input: std::collections::VecDeque<u8>,
+    output: Vec<u8>,
+}
+
+impl ErrorType for Waiting {
+    type Error = core::convert::Infallible;
+}
+
+impl Read for Waiting {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        if self.input.is_empty() {
+            core::future::pending::<()>().await;
+        }
+        let n = buf.len().min(self.input.len());
+        for b in &mut buf[..n] {
+            *b = self.input.pop_front().unwrap();
+        }
+        Ok(n)
+    }
+}
+
+impl Write for Waiting {
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        self.output.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+/// Reports one availability change per step, then nothing.
+struct Toggles(std::collections::VecDeque<bool>);
+
+impl impromptu_wifi_core::AvailabilitySource for Toggles {
+    async fn next(&mut self) -> bool {
+        match self.0.pop_front() {
+            Some(v) => v,
+            None => core::future::pending().await,
+        }
+    }
+}
+
+#[test]
+fn radio_off_reports_stopped_and_refuses_credentials() {
+    let link = SerialLink::new(Waiting {
+        input: Default::default(),
+        output: Vec::new(),
+    });
+    let mut driver = Driver::new(link, FakeWifi, FakeDevice, false);
+
+    // The radio goes off while the device is idle.
+    let mut radio = Toggles([false].into());
+    block_on(driver.step_with(&mut NoAuth, &mut radio)).unwrap();
+    assert_eq!(driver.machine().state(), State::Stopped);
+
+    // Credentials while stopped are refused. The driver owns the link, so
+    // take it apart to queue the command, keeping the machine stopped.
+    let packet = client_packet(Command::WifiSettings {
+        ssid: "home",
+        password: "hunter22",
+    });
+    let (link, wifi, device) = driver.into_parts();
+    let mut io = link.into_inner();
+    io.input.extend(packet);
+    let mut driver = Driver::new(SerialLink::new(io), wifi, device, false);
+    driver.machine_mut().set_available(false);
+    block_on(driver.step_with(&mut NoAuth, &mut Toggles(Default::default()))).unwrap();
+    assert_eq!(driver.machine().error(), ErrorCode::Unknown);
+
+    // The radio comes back.
+    block_on(driver.step_with(&mut NoAuth, &mut Toggles([true].into()))).unwrap();
+    assert_eq!(driver.machine().state(), State::Authorized);
+
+    let (link, _, _) = driver.into_parts();
+    let seen = decode_output(&link.into_inner().output);
+    assert!(seen.contains(&Seen::State(State::Stopped)), "{seen:?}");
+    assert_eq!(
+        seen.last(),
+        Some(&Seen::State(State::Authorized)),
+        "{seen:?}"
+    );
+}

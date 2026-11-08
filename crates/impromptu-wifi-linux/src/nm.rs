@@ -26,8 +26,8 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use impromptu_wifi_core::traits::{
-    ConnectError, NetworkFlags, NetworkInfo, NetworkStatus, ScanError, Url, WifiAuth, WifiConnect,
-    WifiScanner,
+    AvailabilitySource, ConnectError, NetworkFlags, NetworkInfo, NetworkStatus, ScanError, Url,
+    WifiAuth, WifiConnect, WifiScanner,
 };
 use zbus::proxy::CacheProperties;
 use zbus::zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Value};
@@ -67,6 +67,8 @@ trait NetworkManager {
     fn state(&self) -> zbus::Result<u32>;
     #[zbus(property)]
     fn primary_connection(&self) -> zbus::Result<OwnedObjectPath>;
+    #[zbus(property)]
+    fn wireless_enabled(&self) -> zbus::Result<bool>;
 }
 
 #[proxy(
@@ -207,6 +209,65 @@ async fn root(conn: &Connection) -> zbus::Result<NetworkManagerProxy<'static>> {
         .cache_properties(CacheProperties::No)
         .build()
         .await
+}
+
+/// Whether NetworkManager's Wi-Fi radio is switched on (its
+/// `WirelessEnabled` property), as an [`AvailabilitySource`].
+///
+/// Pass it to [`Driver::run_with`](impromptu_wifi_core::Driver::run_with)
+/// so a serial client sees the `Stopped` state while Wi-Fi is off (for
+/// example after `nmcli radio wifi off` or airplane mode), and set the
+/// initial value from [`enabled`](Self::enabled) first.
+pub struct NmRadio {
+    proxy: NetworkManagerProxy<'static>,
+    changes: zbus::proxy::PropertyStream<'static, bool>,
+    reported: bool,
+}
+
+impl NmRadio {
+    /// Start following `WirelessEnabled`.
+    pub async fn new(conn: &Connection) -> Result<Self, NmError> {
+        // Property streams need the proxy's cache; it is kept up to date
+        // from NetworkManager's change signals.
+        let proxy = NetworkManagerProxy::builder(conn)
+            .cache_properties(CacheProperties::Yes)
+            .build()
+            .await?;
+        let changes = proxy.receive_wireless_enabled_changed().await;
+        let reported = proxy.wireless_enabled().await?;
+        Ok(Self {
+            proxy,
+            changes,
+            reported,
+        })
+    }
+
+    /// Whether Wi-Fi is switched on, as last known.
+    pub fn enabled(&self) -> bool {
+        self.proxy
+            .cached_wireless_enabled()
+            .ok()
+            .flatten()
+            .unwrap_or(self.reported)
+    }
+}
+
+impl AvailabilitySource for NmRadio {
+    async fn next(&mut self) -> bool {
+        // Cancel-safe: the only await is the stream's, and a change that
+        // arrived while this future wasn't polled is still in the cache.
+        loop {
+            let now = self.enabled();
+            if now != self.reported {
+                self.reported = now;
+                return now;
+            }
+            if self.changes.next().await.is_none() {
+                // NetworkManager went away; report no further changes.
+                core::future::pending::<()>().await;
+            }
+        }
+    }
 }
 
 impl NmWifi {

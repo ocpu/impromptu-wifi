@@ -488,6 +488,13 @@ pub trait AuthSource {
     /// Wait for the next event. Must be cancel-safe: the driver races it
     /// against incoming commands.
     async fn next(&mut self) -> AuthEvent;
+
+    /// Restart the authorization timeout, if one is running.
+    ///
+    /// The driver calls this when the BLE spec says the timeout restarts:
+    /// after a failed Wi-Fi join, and after a hostname or device-name write.
+    /// A source without a timeout ignores it, which is the default.
+    fn restart_timeout(&mut self) {}
 }
 
 /// No authorization: for serial, and for BLE devices that start authorized.
@@ -497,6 +504,34 @@ pub struct NoAuth;
 impl AuthSource for NoAuth {
     async fn next(&mut self) -> AuthEvent {
         core::future::pending().await
+    }
+}
+
+/// Source of Wi-Fi availability changes, such as the radio being switched
+/// off and on again (serial).
+///
+/// While Wi-Fi is unavailable a serial device reports the `Stopped` state.
+/// The driver races [`next`](Self::next) against incoming commands, so a
+/// change is published as soon as it happens.
+pub trait AvailabilitySource {
+    /// Wait until availability changes and return the new value: `true` if
+    /// provisioning is possible. Must be cancel-safe.
+    async fn next(&mut self) -> bool;
+}
+
+/// Availability never changes: the default.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AlwaysAvailable;
+
+impl AvailabilitySource for AlwaysAvailable {
+    async fn next(&mut self) -> bool {
+        core::future::pending().await
+    }
+}
+
+impl<T: AvailabilitySource + ?Sized> AvailabilitySource for &mut T {
+    async fn next(&mut self) -> bool {
+        (**self).next().await
     }
 }
 

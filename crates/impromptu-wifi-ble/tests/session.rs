@@ -300,3 +300,57 @@ fn hostname_on_a_bare_device_is_unknown_command() {
         Some(&Seen::Error(ErrorCode::UnknownCommand))
     );
 }
+
+/// Authorizes once, immediately, and counts timeout restarts.
+struct CountingAuth {
+    pressed: bool,
+    restarts: usize,
+}
+
+impl AuthSource for CountingAuth {
+    async fn next(&mut self) -> AuthEvent {
+        if core::mem::take(&mut self.pressed) {
+            AuthEvent::Authorize
+        } else {
+            core::future::pending().await
+        }
+    }
+
+    fn restart_timeout(&mut self) {
+        self.restarts += 1;
+    }
+}
+
+struct FailingWifi;
+
+impl WifiConnect for FailingWifi {
+    async fn connect(&mut self, _ssid: &str, _pw: &str) -> Result<Option<Url>, ConnectError> {
+        Err(ConnectError::InvalidCredentials)
+    }
+}
+
+unsupported!(FailingWifi: WifiScanner, NetworkStatus);
+
+#[test]
+fn driver_restarts_the_auth_timeout_where_the_spec_says() {
+    let mut gatt = FakeGatt::default();
+    gatt.client_writes(Command::Hostname(Some("kitchen-lamp")));
+    gatt.client_writes(Command::Hostname(None));
+    gatt.client_writes(Command::WifiSettings {
+        ssid: "home",
+        password: "wrong",
+    });
+    let caps = capabilities::<FailingWifi, Lamp>();
+    let mut driver = Driver::new(BleLink::new(gatt, caps), FailingWifi, Lamp::new(), true);
+    let mut auth = CountingAuth {
+        pressed: true,
+        restarts: 0,
+    };
+
+    let err = block_on(driver.provision(&mut auth)).unwrap_err();
+    assert_eq!(err, "disconnected");
+    assert_eq!(
+        auth.restarts, 2,
+        "the hostname write and the failed join; not the hostname read"
+    );
+}

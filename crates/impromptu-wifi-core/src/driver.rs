@@ -3,14 +3,14 @@
 
 use core::convert::Infallible;
 
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{select3, Either3};
 use impromptu_wifi_proto::{
     command_id, Command, EncodeError, ErrorCode, RawRpc, ResultWriter, State, Transport,
 };
 use impromptu_wifi_traits::{
-    AuthEvent, AuthSource, ConnectError, DeviceInfoSource, DeviceNameError, HostnameError,
-    HostnameProvider, Identify, NetworkInfo, NetworkStatus, Url, WifiAuth, WifiConnect,
-    WifiScanner,
+    AlwaysAvailable, AuthEvent, AuthSource, AvailabilitySource, ConnectError, DeviceInfoSource,
+    DeviceNameError, HostnameError, HostnameProvider, Identify, NetworkInfo, NetworkStatus, Url,
+    WifiAuth, WifiConnect, WifiScanner,
 };
 
 use crate::link::Link;
@@ -113,8 +113,18 @@ where
         &mut self,
         auth: &mut A,
     ) -> Result<Option<Url>, L::Error> {
+        self.provision_with(auth, &mut AlwaysAvailable).await
+    }
+
+    /// [`provision`](Self::provision), also following Wi-Fi availability
+    /// changes from `availability` (see [`run_with`](Self::run_with)).
+    pub async fn provision_with<A: AuthSource, V: AvailabilitySource>(
+        &mut self,
+        auth: &mut A,
+        availability: &mut V,
+    ) -> Result<Option<Url>, L::Error> {
         loop {
-            self.step(auth).await?;
+            self.step_with(auth, availability).await?;
             if self.machine.state() == State::Provisioned {
                 return Ok(self.url.clone());
             }
@@ -123,22 +133,54 @@ where
 
     /// Serve commands until the link fails.
     pub async fn run<A: AuthSource>(&mut self, auth: &mut A) -> Result<Infallible, L::Error> {
+        self.run_with(auth, &mut AlwaysAvailable).await
+    }
+
+    /// [`run`](Self::run), also following Wi-Fi availability changes from
+    /// `availability`. On serial, unavailable Wi-Fi is reported as
+    /// [`State::Stopped`] (see [`Machine::set_available`]); set the initial
+    /// value with [`machine_mut`](Self::machine_mut) before starting.
+    pub async fn run_with<A: AuthSource, V: AvailabilitySource>(
+        &mut self,
+        auth: &mut A,
+        availability: &mut V,
+    ) -> Result<Infallible, L::Error> {
         loop {
-            self.step(auth).await?;
+            self.step_with(auth, availability).await?;
         }
     }
 
     /// Publish pending updates, handle one command or authorization event,
     /// and publish again.
     pub async fn step<A: AuthSource>(&mut self, auth: &mut A) -> Result<(), L::Error> {
+        self.step_with(auth, &mut AlwaysAvailable).await
+    }
+
+    /// [`step`](Self::step), where an availability change also counts as an
+    /// event.
+    pub async fn step_with<A: AuthSource, V: AvailabilitySource>(
+        &mut self,
+        auth: &mut A,
+        availability: &mut V,
+    ) -> Result<(), L::Error> {
         publish(&mut self.link, &mut self.machine).await?;
-        match select(self.link.recv(&mut self.rx), auth.next()).await {
-            Either::First(received) => match received? {
+        match select3(
+            self.link.recv(&mut self.rx),
+            auth.next(),
+            availability.next(),
+        )
+        .await
+        {
+            Either3::First(received) => match received? {
                 Some(len) => self.handle(len).await?,
                 None => self.machine.on_rpc_error(ErrorCode::InvalidRpc),
             },
-            Either::Second(AuthEvent::Authorize) => self.machine.authorize(),
-            Either::Second(AuthEvent::Revoke) => self.machine.revoke(),
+            Either3::Second(AuthEvent::Authorize) => self.machine.authorize(),
+            Either3::Second(AuthEvent::Revoke) => self.machine.revoke(),
+            Either3::Third(available) => self.machine.set_available(available),
+        }
+        if self.machine.take_auth_restart() {
+            auth.restart_timeout();
         }
         publish(&mut self.link, &mut self.machine).await
     }

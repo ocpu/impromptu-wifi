@@ -33,7 +33,7 @@ pub use impromptu_wifi_proto as proto;
 /// Re-export of the backend traits crate.
 pub use impromptu_wifi_traits as traits;
 pub use impromptu_wifi_traits::{
-    unsupported, AuthEvent, AuthSource, ConnectError, DeviceInfoSource, DeviceNameError,
-    HostnameError, HostnameProvider, Identify, NetworkFlags, NetworkInfo, NetworkStatus, NoAuth,
-    ScanError, Url, WifiAuth, WifiConnect, WifiScanner,
+    unsupported, AlwaysAvailable, AuthEvent, AuthSource, AvailabilitySource, ConnectError,
+    DeviceInfoSource, DeviceNameError, HostnameError, HostnameProvider, Identify, NetworkFlags,
+    NetworkInfo, NetworkStatus, NoAuth, ScanError, Url, WifiAuth, WifiConnect, WifiScanner,
 };

@@ -102,3 +102,37 @@ fn pressing_again_extends_the_window() {
     assert_eq!(block_on(auth.next()), AuthEvent::Authorize);
     assert!(auth.deadline().unwrap() > first);
 }
+
+#[test]
+fn restart_timeout_pushes_the_deadline_back() {
+    let pin = FakePin::default();
+    let mut auth = ButtonAuth::active_low(pin.clone(), TIMEOUT);
+    pin.press();
+    block_on(auth.next());
+    let first = auth.deadline().unwrap();
+
+    block_on(Timer::after(Duration::from_millis(100)));
+    auth.restart_timeout();
+    let restarted = auth.deadline().unwrap();
+    assert!(
+        restarted >= first + Duration::from_millis(90),
+        "deadline moved from {first:?} to {restarted:?}"
+    );
+
+    // The revoke now comes TIMEOUT after the restart, not after the press.
+    let start = Instant::now();
+    assert_eq!(block_on(auth.next()), AuthEvent::Revoke);
+    assert!(
+        start.elapsed() >= Duration::from_millis(140),
+        "revoked after {:?}",
+        start.elapsed()
+    );
+}
+
+#[test]
+fn restart_timeout_does_not_authorize() {
+    let pin = FakePin::default();
+    let mut auth = ButtonAuth::active_low(pin, TIMEOUT);
+    auth.restart_timeout();
+    assert!(auth.deadline().is_none(), "no press, no authorization");
+}

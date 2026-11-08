@@ -65,6 +65,9 @@ pub struct Machine {
     /// A write is allowed. Always `true` without `require_auth`; otherwise
     /// set by `authorize` and cleared by `revoke`, independent of `state`.
     authorized: bool,
+    /// Something happened that restarts the authorization timeout; see
+    /// [`take_auth_restart`](Self::take_auth_restart).
+    auth_restart: bool,
     state_dirty: bool,
     error_dirty: bool,
 }
@@ -80,6 +83,7 @@ impl Machine {
             error: ErrorCode::None,
             require_auth,
             authorized: !require_auth,
+            auth_restart: false,
             state_dirty: true,
             error_dirty: true,
         }
@@ -142,6 +146,22 @@ impl Machine {
         };
         self.error = error;
         self.error_dirty = true;
+    }
+
+    /// Whether the authorization timeout should restart, once per event.
+    ///
+    /// The BLE spec restarts it after a failed Wi-Fi join and after a
+    /// hostname or device-name write. The driver passes this on to
+    /// [`AuthSource::restart_timeout`](crate::AuthSource::restart_timeout).
+    /// Always `false` without `require_auth`.
+    pub fn take_auth_restart(&mut self) -> bool {
+        core::mem::take(&mut self.auth_restart)
+    }
+
+    fn restart_auth_timeout(&mut self) {
+        if self.require_auth && self.authorized {
+            self.auth_restart = true;
+        }
     }
 
     /// Whether a write would currently pass the authorization check.
@@ -219,11 +239,17 @@ impl Machine {
             Command::Hostname(Some(h)) => match self.may_write() {
                 Err(e) => Decision::Reject(e),
                 Ok(()) if !is_valid_hostname(h) => Decision::Reject(ErrorCode::BadHostname),
-                Ok(()) => Decision::SetHostname(h),
+                Ok(()) => {
+                    self.restart_auth_timeout();
+                    Decision::SetHostname(h)
+                }
             },
             Command::DeviceName(Some(n)) => match self.may_write() {
                 Err(e) => Decision::Reject(e),
-                Ok(()) => Decision::SetDeviceName(n),
+                Ok(()) => {
+                    self.restart_auth_timeout();
+                    Decision::SetDeviceName(n)
+                }
             },
         };
         if let Decision::Reject(code) = decision {
@@ -254,6 +280,7 @@ impl Machine {
         } else {
             self.set_error(ErrorCode::UnableToConnect);
             self.set_state(Self::idle_state(self.authorized));
+            self.restart_auth_timeout();
         }
     }
 
@@ -446,6 +473,44 @@ mod tests {
         m.on_connect_result(false);
         assert_eq!(m.state(), State::AuthorizationRequired);
         assert_eq!(m.error(), ErrorCode::UnableToConnect);
+    }
+
+    #[test]
+    fn auth_timeout_restarts_where_the_spec_says() {
+        let mut m = Machine::new(Transport::Ble, true);
+        m.authorize();
+        assert!(!m.take_auth_restart(), "authorizing alone is not a restart");
+
+        m.on_command(Command::Hostname(Some("lamp")));
+        assert!(m.take_auth_restart(), "hostname write");
+        assert!(!m.take_auth_restart(), "reported once");
+
+        m.on_command(Command::DeviceName(Some("Lamp")));
+        assert!(m.take_auth_restart(), "device-name write");
+
+        m.on_command(Command::Hostname(None));
+        m.on_command(Command::DeviceInfo);
+        assert!(!m.take_auth_restart(), "reads don't restart it");
+
+        m.on_command(CREDS);
+        assert!(!m.take_auth_restart(), "starting a join doesn't");
+        m.on_connect_result(false);
+        assert!(m.take_auth_restart(), "a failed join does");
+
+        m.on_command(CREDS);
+        m.on_connect_result(true);
+        assert!(!m.take_auth_restart(), "a successful join doesn't");
+    }
+
+    #[test]
+    fn no_restart_without_auth_or_when_rejected() {
+        let mut m = Machine::new(Transport::Ble, false);
+        m.on_command(Command::Hostname(Some("lamp")));
+        assert!(!m.take_auth_restart(), "no timeout without require_auth");
+
+        let mut m = Machine::new(Transport::Ble, true);
+        m.on_command(Command::Hostname(Some("lamp")));
+        assert!(!m.take_auth_restart(), "rejected writes don't restart it");
     }
 
     #[test]

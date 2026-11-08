@@ -7,7 +7,9 @@ use impromptu_wifi_core::traits::{AuthEvent, AuthSource};
 ///
 /// A press yields [`AuthEvent::Authorize`] and (re)starts the timeout; when
 /// it expires, [`AuthEvent::Revoke`] follows. The spec suggests about one
-/// minute. Pressing again while authorized extends the window.
+/// minute. Pressing again while authorized extends the window, and so do
+/// the events the spec names (a failed Wi-Fi join, a hostname or
+/// device-name write), through [`AuthSource::restart_timeout`].
 ///
 /// The deadline is stored in the struct rather than in a timer future,
 /// because the driver cancels [`next`](AuthSource::next) whenever a command
@@ -85,6 +87,12 @@ impl<B: Wait> AuthSource for ButtonAuth<B> {
         } else {
             self.deadline = None;
             AuthEvent::Revoke
+        }
+    }
+
+    fn restart_timeout(&mut self) {
+        if self.deadline.is_some() {
+            self.deadline = Some(Instant::now() + self.timeout);
         }
     }
 }

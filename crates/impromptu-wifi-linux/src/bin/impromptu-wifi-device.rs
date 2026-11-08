@@ -17,7 +17,8 @@ use clap::Parser;
 use impromptu_wifi_ble::BleLink;
 use impromptu_wifi_core::{Driver, NoAuth};
 use impromptu_wifi_linux::bluez::{Adapter, BluezGatt};
-use impromptu_wifi_linux::{hostname::LinuxDevice, nm::NmWifi, serial};
+use impromptu_wifi_linux::nm::{NmRadio, NmWifi};
+use impromptu_wifi_linux::{hostname::LinuxDevice, serial};
 use impromptu_wifi_serial::SerialLink;
 
 #[derive(Parser)]
@@ -109,7 +110,12 @@ async fn serve(args: Args) -> Result<std::convert::Infallible> {
         .ble
         .then(|| tokio::spawn(serve_ble(bus.clone(), wifi.clone(), device.clone())));
     match args.serial {
-        Some(path) => serve_serial(&path, args.baud, wifi, device).await,
+        Some(path) => {
+            let radio = NmRadio::new(&bus)
+                .await
+                .context("watching the Wi-Fi radio switch")?;
+            serve_serial(&path, args.baud, wifi, device, radio).await
+        }
         None => match ble {
             Some(task) => task.await.context("Bluetooth task")?,
             None => unreachable!("clap requires a transport"),
@@ -122,6 +128,7 @@ async fn serve_serial(
     baud: u32,
     mut wifi: NmWifi,
     mut device: LinuxDevice,
+    mut radio: NmRadio,
 ) -> Result<std::convert::Infallible> {
     loop {
         let port = match serial::open(path, baud) {
@@ -140,8 +147,10 @@ async fn serve_serial(
         if let Some(url) = online {
             driver.mark_provisioned(url);
         }
-        // `run` only returns when the link fails.
-        let Err(e) = driver.run(&mut NoAuth).await;
+        // While the radio is off, serial clients see the Stopped state.
+        driver.machine_mut().set_available(radio.enabled());
+        // `run_with` only returns when the link fails.
+        let Err(e) = driver.run_with(&mut NoAuth, &mut radio).await;
         log::warn!("serial link ended: {e:?}; reopening");
         tokio::time::sleep(Duration::from_secs(1)).await;
     }

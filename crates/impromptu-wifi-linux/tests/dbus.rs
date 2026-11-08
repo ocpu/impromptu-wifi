@@ -48,6 +48,7 @@ struct World {
     requests: Vec<HashMap<(String, String), String>>,
     active_states: HashMap<u32, u32>,
     nm_state: u32,
+    wireless_enabled: bool,
     primary: Option<OwnedObjectPath>,
     next_id: u32,
     last_scan: i64,
@@ -178,6 +179,11 @@ impl Root {
     #[zbus(property)]
     fn state(&self) -> u32 {
         self.0.lock().unwrap().nm_state
+    }
+
+    #[zbus(property)]
+    fn wireless_enabled(&self) -> bool {
+        self.0.lock().unwrap().wireless_enabled
     }
 
     #[zbus(property)]
@@ -491,6 +497,7 @@ fn home_world() -> World {
         .map(|(a, b)| (a.into(), b.into()))
         .collect(),
         nm_state: 20, // disconnected
+        wireless_enabled: true,
         hostname: "raspberrypi".into(),
         ..World::default()
     }
@@ -762,4 +769,75 @@ async fn a_device_already_online_reports_provisioned_after_a_restart() {
         net.urls.iter().map(|u| u.as_str()).collect::<Vec<_>>(),
         ["http://192.168.1.50"]
     );
+}
+
+/// Switch the stand-in NetworkManager's radio and announce it.
+async fn set_radio(world: &Shared, svc: &Connection, enabled: bool) {
+    world.lock().unwrap().wireless_enabled = enabled;
+    let root = svc
+        .object_server()
+        .interface::<_, Root>("/org/freedesktop/NetworkManager")
+        .await
+        .unwrap();
+    root.get()
+        .await
+        .wireless_enabled_changed(root.signal_emitter())
+        .await
+        .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn radio_switch_is_reported_as_stopped_over_serial() {
+    use impromptu_wifi_client::ClientError;
+    use impromptu_wifi_linux::nm::NmRadio;
+
+    let bus = private_bus().await;
+    let (world, svc) = services(&bus, home_world()).await;
+    let conn = connect(&bus).await;
+    let wifi = NmWifi::new(conn.clone(), None).await.unwrap();
+    let dev = LinuxDevice::new(&conn, "my-fw", "1.2.3").await.unwrap();
+    let mut radio = NmRadio::new(&conn).await.unwrap();
+    assert!(radio.enabled());
+
+    let (device_end, client_end) = tokio::io::duplex(4096);
+    tokio::spawn(async move {
+        let mut driver = Driver::new(
+            SerialLink::new(FromTokio::new(device_end)),
+            wifi,
+            dev,
+            false,
+        );
+        driver.machine_mut().set_available(radio.enabled());
+        let _ = driver.run_with(&mut NoAuth, &mut radio).await;
+    });
+    let mut client = Client::new(SerialClientLink::new(FromTokio::new(client_end)));
+    assert_eq!(client.current_state().await.unwrap(), State::Authorized);
+
+    // `nmcli radio wifi off`: the client is told without asking.
+    set_radio(&world, &svc, false).await;
+    tokio::time::timeout(
+        Duration::from_secs(2),
+        client.wait_for_state(State::Stopped),
+    )
+    .await
+    .expect("the Stopped state was pushed")
+    .unwrap();
+    let refused = client.provision("home", "hunter22").await.unwrap_err();
+    assert!(matches!(refused, ClientError::Device(_)), "got {refused:?}");
+    assert!(
+        world.lock().unwrap().requests.is_empty(),
+        "nothing was sent to NetworkManager"
+    );
+
+    // And back on.
+    set_radio(&world, &svc, true).await;
+    tokio::time::timeout(
+        Duration::from_secs(2),
+        client.wait_for_state(State::Authorized),
+    )
+    .await
+    .expect("the Authorized state was pushed")
+    .unwrap();
+    let url = client.provision("home", "hunter22").await.unwrap();
+    assert_eq!(url.as_deref(), Some("http://192.168.1.50"));
 }
