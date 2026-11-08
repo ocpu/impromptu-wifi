@@ -25,6 +25,24 @@ The Linux D-Bus tests need the `dbus-daemon` binary. CI also builds the
 ESP32-S3 example and the Raspberry Pi binaries; [AGENTS.md](AGENTS.md) lists
 those commands.
 
+## Preview the site
+
+The project site (landing page, browser client and documentation) is built
+by `scripts/build-site.sh`. It needs the `wasm32-unknown-unknown` target,
+`wasm-bindgen-cli` at the `wasm-bindgen` version in `Cargo.lock`, and
+mdBook 0.5.4:
+
+```sh
+rustup target add wasm32-unknown-unknown
+cargo install --locked wasm-bindgen-cli --version 0.2.129
+cargo install --locked mdbook --version 0.5.4
+scripts/build-site.sh
+python3 -m http.server -d target/site 8000
+```
+
+Web Serial and Web Bluetooth work on `http://localhost`, so the browser client
+can be tried against a device from the preview.
+
 ## Rules
 
 - **Commits:** [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/),
