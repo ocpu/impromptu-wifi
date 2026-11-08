@@ -1,0 +1,13 @@
+[build]
+target = "xtensa-esp32s3-none-elf"
+rustflags = ["-C", "link-arg=-nostartfiles", "-C", "link-arg=-Wl,--no-warn-rwx-segments"]
+
+[target.xtensa-esp32s3-none-elf]
+runner = "espflash flash --monitor --chip esp32s3"
+
+[env]
+ESP_LOG = "info"
+
+# Xtensa targets ship without a prebuilt standard library.
+[unstable]
+build-std = ["alloc", "core"]

@@ -23,7 +23,7 @@ env:
   # random red build. Bump together with fixes for any new warnings.
   RUST_STABLE: "1.99.1"
   # Host-buildable features. `esp` needs a chip feature and is
-  # covered by the esp32c6 example job; `defmt` by the no_std jobs.
+  # covered by the esp32c6 and esp32s3 example jobs; `defmt` by the no_std jobs.
   HOST_FEATURES: >-
     impromptu-wifi-embassy/trouble,impromptu-wifi-embassy/trouble-central,impromptu-wifi-embassy/usb,impromptu-wifi-embassy/embassy-net,impromptu-wifi-embassy/flash,impromptu-wifi-linux/daemon,impromptu-wifi/embassy-trouble,impromptu-wifi/embassy-trouble-central,impromptu-wifi/embassy-usb,impromptu-wifi/embassy-net,impromptu-wifi/embassy-flash,impromptu-wifi/host-serial,impromptu-wifi/host-ble,impromptu-wifi/linux-networkmanager,impromptu-wifi/linux-hostnamed,impromptu-wifi/linux-serial,impromptu-wifi/linux-bluez
   # The crates that claim `no_std` without impromptu-wifi-embassy. The
@@ -150,6 +150,27 @@ jobs:
       - working-directory: examples/esp32c6
         run: cargo build --locked --release
 
+  esp32s3:
+    # The same firmware on Xtensa, which needs Espressif's Rust fork.
+    name: ESP32-S3 example
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: esp-rs/xtensa-toolchain@ec6d36527049a7f4fb2cb0c1a644668c1bb8a2a4 # v1.7.0
+        with:
+          buildtargets: esp32s3
+          # Pinned for the same reason as RUST_STABLE.
+          version: "1.97.0.0"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: examples/esp32s3
+      - working-directory: examples/esp32s3
+        run: cargo fmt --check
+      - working-directory: examples/esp32s3
+        run: cargo clippy --locked --release -- -D warnings
+      - working-directory: examples/esp32s3
+        run: cargo build --locked --release
+
   msrv:
     name: MSRV (${{ matrix.rust }})
     runs-on: ubuntu-24.04
@@ -191,4 +212,4 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: python3 -I scripts/check-dep-age.py --min-days 14 Cargo.lock examples/esp32c6/Cargo.lock
+      - run: python3 -I scripts/check-dep-age.py --min-days 14 Cargo.lock examples/esp32c6/Cargo.lock examples/esp32s3/Cargo.lock

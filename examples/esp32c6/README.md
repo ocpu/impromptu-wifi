@@ -1,7 +1,8 @@
 # ESP32-C6 example
 
 Firmware that makes an ESP32-C6 provisionable over Improv Wi-Fi, through the
-`impromptu-wifi` crate with the `esp` and `embassy-trouble` features.
+`impromptu-wifi` crate with the `esp`, `embassy-trouble` and `embassy-flash`
+features. [`../esp32s3`](../esp32s3) is the same firmware for the ESP32-S3.
 
 | Transport | Where | Authorization |
 |---|---|---|
