@@ -1,6 +1,6 @@
 //! An ESP32 Wi-Fi backend over `esp-radio` (1.0.0-beta.1, for esp-hal 1.2).
 //!
-//! Built in CI through `examples/esp32c6` only, as it needs a chip
+//! Built in CI through `examples/esp32s3` only, as it needs a chip
 //! feature. Written against the esp-radio 1.0.0-beta.1 sources.
 //!
 //! ```ignore
@@ -18,7 +18,7 @@
 //!
 //! To persist them, wrap the backend in
 //! [`PersistOnJoin`](impromptu_wifi_core::PersistOnJoin) with a
-//! `FlashStore` (feature `flash`) instead, as `examples/esp32c6` does.
+//! `FlashStore` (feature `flash`) instead, as `examples/esp32s3` does.
 //!
 //! # Requirements in the application
 //!

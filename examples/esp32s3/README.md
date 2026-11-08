@@ -2,9 +2,7 @@
 
 Firmware that makes an ESP32-S3 provisionable over Improv Wi-Fi, through the
 `impromptu-wifi` crate with the `esp`, `embassy-trouble` and `embassy-flash`
-features. It is the [ESP32-C6 example](../esp32c6) adapted to the S3; the
-differences are listed under [Differences from the ESP32-C6
-example](#differences-from-the-esp32-c6-example).
+features. Pins and toolchain are listed under [Hardware](#hardware).
 
 | Transport | Where | Authorization |
 |---|---|---|
@@ -138,18 +136,17 @@ that only provisions, such as https://www.improv-wifi.com/ ("Connect device
 to Wi-Fi"), and choose the USB-Serial-JTAG port. An install page, such as
 ESPHome's, can replace this firmware with its own.
 
-## Differences from the ESP32-C6 example
+## Hardware
 
-| | ESP32-C6 | ESP32-S3 |
-|---|---|---|
-| Target | `riscv32imac-unknown-none-elf`, stable Rust | `xtensa-esp32s3-none-elf`, the `esp` toolchain with `build-std` |
-| BOOT button | GPIO9 | GPIO0 |
-| RGB LED (DevKitC-1) | GPIO8 | GPIO38 (v1.1), GPIO48 (v1.0) |
-| Cores | 1 | 2; this firmware uses one |
-| Release image | about 1.0 MB | about 0.77 MB |
+| | ESP32-S3 |
+|---|---|
+| Target | `xtensa-esp32s3-none-elf`, the `esp` toolchain with `build-std` |
+| BOOT button | GPIO0 |
+| RGB LED (DevKitC-1) | GPIO38 (v1.1), GPIO48 (v1.0) |
+| Cores | 2; this firmware uses one |
+| Release image | about 0.8 MB |
 
-The source is otherwise the same. Keep the two in step when changing
-either.
+Other ESP32 chips need their own target, pins and esp-hal chip features.
 
 ## Limitations
 
