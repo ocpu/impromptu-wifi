@@ -1,0 +1,20 @@
+[package]
+name = "impromptu-wifi-core"
+description = "Transport-agnostic Improv Wi-Fi state machine, backend traits and async driver (no_std)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+categories = ["embedded", "no-std", "network-programming"]
+keywords = ["improv", "wifi", "provisioning", "esphome"]
+
+[features]
+defmt = ["dep:defmt", "impromptu-wifi-proto/defmt", "impromptu-wifi-traits/defmt", "heapless/defmt"]
+
+[dependencies]
+impromptu-wifi-proto.workspace = true
+impromptu-wifi-traits.workspace = true
+heapless.workspace = true
+embassy-futures.workspace = true
+defmt = { workspace = true, optional = true }

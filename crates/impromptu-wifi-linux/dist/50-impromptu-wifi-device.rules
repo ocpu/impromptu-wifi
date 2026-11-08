@@ -1,0 +1,13 @@
+// Lets the `impromptu-wifi` service user configure Wi-Fi and the hostname, and
+// nothing else. Install to /etc/polkit-1/rules.d/ (polkit 0.106 or later).
+polkit.addRule(function (action, subject) {
+    if (subject.user !== "impromptu-wifi") {
+        return polkit.Result.NOT_HANDLED;
+    }
+    if (action.id.indexOf("org.freedesktop.NetworkManager.") === 0 ||
+        action.id === "org.freedesktop.hostname1.set-static-hostname" ||
+        action.id === "org.freedesktop.hostname1.set-machine-info") {
+        return polkit.Result.YES;
+    }
+    return polkit.Result.NOT_HANDLED;
+});

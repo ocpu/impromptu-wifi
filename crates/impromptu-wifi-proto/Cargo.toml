@@ -1,0 +1,16 @@
+[package]
+name = "impromptu-wifi-proto"
+description = "no_std, allocation-free wire format for the Improv Wi-Fi provisioning protocol (serial and BLE)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+categories = ["embedded", "no-std", "network-programming", "encoding"]
+keywords = ["improv", "wifi", "provisioning", "esphome"]
+
+[features]
+defmt = ["dep:defmt"]
+
+[dependencies]
+defmt = { workspace = true, optional = true }

@@ -1,0 +1,21 @@
+[package]
+name = "impromptu-wifi-ble"
+description = "Improv Wi-Fi over Bluetooth LE, device and client side, independent of any particular BLE stack"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+categories = ["embedded", "no-std", "network-programming"]
+keywords = ["improv", "wifi", "provisioning", "ble", "bluetooth"]
+
+[features]
+defmt = ["impromptu-wifi-core/defmt", "impromptu-wifi-client/defmt"]
+
+[dependencies]
+impromptu-wifi-core.workspace = true
+impromptu-wifi-client.workspace = true
+
+[dev-dependencies]
+embassy-futures.workspace = true
+heapless.workspace = true

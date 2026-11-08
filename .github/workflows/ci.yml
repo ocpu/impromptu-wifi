@@ -1,0 +1,163 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Weekly, so new RustSec advisories show up without a code change.
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  # Pinned so new clippy lints arrive through a reviewed change, not a
+  # random red build. Bump together with fixes for any new warnings.
+  RUST_STABLE: "1.99.1"
+  # Host-buildable features. `impromptu-wifi-embassy/esp` needs a chip feature and is
+  # covered by the esp32c6 job; `defmt` is covered by the no_std jobs.
+  HOST_FEATURES: >-
+    impromptu-wifi-embassy/trouble,impromptu-wifi-embassy/trouble-central,impromptu-wifi-embassy/usb,impromptu-wifi-embassy/embassy-net,impromptu-wifi-linux/daemon
+  # The crates that claim `no_std` without impromptu-wifi-embassy.
+  NO_STD_CRATES: >-
+    -p impromptu-wifi-proto -p impromptu-wifi-traits -p impromptu-wifi-core -p impromptu-wifi-client -p impromptu-wifi-serial -p impromptu-wifi-ble
+
+jobs:
+  fmt:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master 2026-10-16
+        with:
+          toolchain: ${{ env.RUST_STABLE }}
+          components: rustfmt
+      - run: cargo fmt --all --check
+
+  clippy:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libdbus-1-dev libudev-dev pkg-config
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master 2026-10-16
+        with:
+          toolchain: ${{ env.RUST_STABLE }}
+          components: clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: cargo clippy --locked --workspace --all-targets --features "$HOST_FEATURES" -- -D warnings
+      - name: clippy (default features only)
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # dbus-daemon is preinstalled on the runner; impromptu-wifi-linux/tests/dbus.rs
+      # starts a private instance.
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libdbus-1-dev libudev-dev pkg-config
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master 2026-10-16
+        with:
+          toolchain: ${{ env.RUST_STABLE }}
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: cargo test --locked --workspace --features "$HOST_FEATURES"
+      - name: rustdoc
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --locked --workspace --no-deps --features "$HOST_FEATURES"
+
+  no-std:
+    name: no_std (${{ matrix.target }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Cortex-M0/M0+ (RP2040). No atomic compare-and-swap, which
+          # static_cell (through trouble-host) needs.
+          - target: thumbv6m-none-eabi
+            embassy_features: usb,embassy-net,defmt
+          # Cortex-M4F/M7F (nRF52, STM32F4).
+          - target: thumbv7em-none-eabihf
+            embassy_features: trouble,trouble-central,usb,embassy-net,defmt
+          # ESP32-C3/C6 and other RV32IMAC chips.
+          - target: riscv32imac-unknown-none-elf
+            embassy_features: trouble,trouble-central,usb,embassy-net,defmt
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master 2026-10-16
+        with:
+          toolchain: ${{ env.RUST_STABLE }}
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: ${{ matrix.target }}
+      - name: core crates
+        run: cargo build --locked $NO_STD_CRATES --target ${{ matrix.target }}
+      - name: core crates with defmt
+        run: cargo build --locked $NO_STD_CRATES --features impromptu-wifi-ble/defmt,impromptu-wifi-serial/defmt --target ${{ matrix.target }}
+      - name: impromptu-wifi-embassy
+        run: cargo build --locked -p impromptu-wifi-embassy --features ${{ matrix.embassy_features }} --target ${{ matrix.target }}
+
+  esp32c6:
+    name: ESP32-C6 backend
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master 2026-10-16
+        with:
+          toolchain: ${{ env.RUST_STABLE }}
+          targets: riscv32imac-unknown-none-elf
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: ci/esp32c6-check
+      - working-directory: ci/esp32c6-check
+        run: cargo build --locked --target riscv32imac-unknown-none-elf
+
+  msrv:
+    name: MSRV (${{ matrix.rust }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Workspace rust-version, set by heapless 0.9.
+          - rust: "1.87"
+            args: >-
+              -p impromptu-wifi-proto -p impromptu-wifi-traits -p impromptu-wifi-core -p impromptu-wifi-client -p impromptu-wifi-serial -p impromptu-wifi-ble
+          # impromptu-wifi-embassy (smoltcp 0.13) and the host crates.
+          - rust: "1.91"
+            args: >-
+              -p impromptu-wifi-embassy -p impromptu-wifi-host -p impromptu-wifi-cli -p impromptu-wifi-linux
+              --features impromptu-wifi-embassy/trouble,impromptu-wifi-embassy/trouble-central,impromptu-wifi-embassy/usb,impromptu-wifi-embassy/embassy-net,impromptu-wifi-linux/daemon
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libdbus-1-dev libudev-dev pkg-config
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master 2026-10-16
+        with:
+          toolchain: ${{ matrix.rust }}
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: cargo check --locked --all-targets ${{ matrix.args }}
+
+  deny:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1 (cargo-deny 0.20.2)
+        with:
+          command: check
+          arguments: --locked
+
+  dependency-age:
+    # Ages only grow, so the scheduled run adds nothing.
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: python3 -I scripts/check-dep-age.py --min-days 14 Cargo.lock ci/esp32c6-check/Cargo.lock

@@ -1,0 +1,28 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/YOUR_ORG/impromptu-wifi"
+rust-version = "1.87" # set by heapless 0.9
+
+# Every crate in the stack shares one version so users never have to work
+# out which combinations are compatible.
+[workspace.dependencies]
+impromptu-wifi-proto = { path = "crates/impromptu-wifi-proto", version = "0.1.0" }
+impromptu-wifi-traits = { path = "crates/impromptu-wifi-traits", version = "0.1.0" }
+impromptu-wifi-core = { path = "crates/impromptu-wifi-core", version = "0.1.0" }
+impromptu-wifi-client = { path = "crates/impromptu-wifi-client", version = "0.1.0" }
+impromptu-wifi-host = { path = "crates/impromptu-wifi-host", version = "0.1.0" }
+impromptu-wifi-serial = { path = "crates/impromptu-wifi-serial", version = "0.1.0" }
+impromptu-wifi-ble = { path = "crates/impromptu-wifi-ble", version = "0.1.0" }
+
+heapless = "0.9"
+# The version current embassy HALs implement (embassy-nrf/rp/stm32/usb;
+# esp-hal implements both 0.6 and 0.7).
+embedded-io-async = "0.7"
+embassy-futures = "0.1"
+defmt = "1"

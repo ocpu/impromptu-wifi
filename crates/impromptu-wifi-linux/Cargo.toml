@@ -1,0 +1,50 @@
+[package]
+name = "impromptu-wifi-linux"
+description = "Improv Wi-Fi device side for Linux: NetworkManager, systemd-hostnamed, serial and BlueZ"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version = "1.91"
+categories = ["network-programming", "os::linux-apis"]
+keywords = ["improv", "wifi", "provisioning", "networkmanager", "raspberry-pi"]
+
+[features]
+default = ["networkmanager", "hostnamed", "serial"]
+## Wi-Fi through NetworkManager's D-Bus API.
+networkmanager = ["dep:zbus", "dep:futures"]
+## Hostname and device name through systemd-hostnamed.
+hostnamed = ["dep:zbus"]
+## Serial ports (UART, USB gadget) through tokio-serial.
+serial = ["dep:tokio-serial", "dep:embedded-io-adapters"]
+## Bluetooth LE through BlueZ (needs libdbus at build time).
+bluez = ["dep:bluer", "dep:futures"]
+## The impromptu-wifi-device daemon binary.
+daemon = [
+    "networkmanager", "hostnamed", "serial", "bluez",
+    "dep:anyhow", "dep:clap",
+    "tokio/rt-multi-thread", "tokio/macros", "tokio/signal",
+]
+
+[dependencies]
+impromptu-wifi-core.workspace = true
+impromptu-wifi-serial.workspace = true
+impromptu-wifi-ble.workspace = true
+heapless.workspace = true
+log = "0.4.34"
+tokio = { version = "1.54", features = ["time", "fs"] }
+zbus = { version = "5.19", optional = true, default-features = false, features = ["tokio"] }
+futures = { version = "0.3.34", optional = true }
+tokio-serial = { version = "5.5", optional = true }
+embedded-io-adapters = { version = "0.7", optional = true, features = ["tokio-1"] }
+bluer = { version = "0.17.4", optional = true, features = ["bluetoothd"] }
+anyhow = { version = "1.0.104", optional = true }
+clap = { version = "4.6.7", optional = true, features = ["derive"] }
+
+[dev-dependencies]
+impromptu-wifi-client.workspace = true
+tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "time", "process", "io-util", "sync"] }
+
+[[bin]]
+name = "impromptu-wifi-device"
+required-features = ["daemon"]

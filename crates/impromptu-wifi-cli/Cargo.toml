@@ -1,0 +1,30 @@
+[package]
+name = "impromptu-wifi-cli"
+description = "Command-line tool to provision Wi-Fi devices over Improv (serial or Bluetooth LE)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version = "1.91"
+categories = ["command-line-utilities", "network-programming"]
+keywords = ["improv", "wifi", "provisioning", "esphome", "cli"]
+
+[[bin]]
+name = "impromptu-wifi"
+path = "src/main.rs"
+
+[dependencies]
+impromptu-wifi-host.workspace = true
+impromptu-wifi-client.workspace = true
+anyhow = "1.0.104"
+clap = { version = "4.6.7", features = ["derive"] }
+rpassword = "7.5.4"
+tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "time"] }
+
+[dev-dependencies]
+impromptu-wifi-core.workspace = true
+impromptu-wifi-serial.workspace = true
+embedded-io-adapters = { version = "0.7", features = ["tokio-1"] }
+heapless.workspace = true
+nix = { version = "0.31.3", features = ["term", "fs"] }
+tokio = { version = "1.54", features = ["rt", "fs", "io-util"] }

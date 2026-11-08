@@ -1,0 +1,28 @@
+[Unit]
+Description=Improv Wi-Fi provisioning
+Documentation=https://www.improv-wifi.com
+After=NetworkManager.service systemd-hostnamed.service bluetooth.service
+Wants=NetworkManager.service
+
+[Service]
+# Choose transports: --serial /dev/ttyGS0 (USB gadget mode) or /dev/serial0
+# (UART), --ble, or both.
+ExecStart=/usr/local/bin/impromptu-wifi-device --serial /dev/ttyGS0
+User=impromptu-wifi
+Group=dialout
+SupplementaryGroups=bluetooth
+Restart=on-failure
+RestartSec=5
+
+# impromptu-wifi-device only talks to D-Bus and the serial port; the polkit rule
+# grants the network and hostname changes, so it needs no other privileges.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,17 @@
+[package]
+name = "impromptu-wifi-traits"
+description = "Backend traits for Improv Wi-Fi: what a device must provide to be provisioned"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+categories = ["embedded", "no-std", "network-programming"]
+keywords = ["improv", "wifi", "provisioning", "esphome"]
+
+[features]
+defmt = ["dep:defmt", "heapless/defmt"]
+
+[dependencies]
+heapless.workspace = true
+defmt = { workspace = true, optional = true }
