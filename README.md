@@ -153,6 +153,9 @@ Everything that parses or encodes takes a `Transport`, and the driver formats sc
 
 ## Status
 
+Which devices, operating systems and clients have been tested is in
+[SUPPORT.md](SUPPORT.md).
+
 | Crate | State |
 |---|---|
 | `impromptu-wifi-proto` | Complete for spec as of BLE 2.4 / serial v1, including hostname, device name and network state |
