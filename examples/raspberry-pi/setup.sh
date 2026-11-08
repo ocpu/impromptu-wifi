@@ -111,12 +111,14 @@ ExecStart=${bluetoothd:-/usr/libexec/bluetooth/bluetoothd} --noplugin=midi
 EOF
         restart_bluetooth=1
     fi
-    # BlueZ before 5.56 ignores an advertisement's own interval and uses
-    # these (units of 0.625 ms); the default, 1.28 s, made scans miss the Pi.
-    if grep -q '^#LEMinAdvertisementInterval=' /etc/bluetooth/main.conf; then
+    # BlueZ 5.55 and 5.66 ignore an advertisement's own interval and use
+    # these defaults (units of 0.625 ms); at 1.28 s, scans missed the Pi.
+    # The keys are LE...AdvertisementInterval in 5.55, ...AdvertisementInterval
+    # in the [LE] section in 5.66 and later. 5.82 uses the daemon's interval.
+    if grep -qE '^#(LE)?MinAdvertisementInterval=' /etc/bluetooth/main.conf; then
         say "advertising every 100 to 150 ms"
         cp -n /etc/bluetooth/main.conf /etc/bluetooth/main.conf.orig
-        sed -i 's/^#LEMinAdvertisementInterval=.*/LEMinAdvertisementInterval=160/; s/^#LEMaxAdvertisementInterval=.*/LEMaxAdvertisementInterval=240/' /etc/bluetooth/main.conf
+        sed -i -E 's/^#(LE)?MinAdvertisementInterval=.*/\1MinAdvertisementInterval=160/; s/^#(LE)?MaxAdvertisementInterval=.*/\1MaxAdvertisementInterval=240/' /etc/bluetooth/main.conf
         restart_bluetooth=1
     fi
     if [ -n "${restart_bluetooth:-}" ]; then
