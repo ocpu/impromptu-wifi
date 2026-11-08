@@ -73,6 +73,14 @@ it; otherwise it fails with "Failed to connect" ("Write not permitted" in
 the log). Tested on an ESP32-S3, 2026-11-08: after the restart, the proxy
 returned the new layout and provisioning succeeded.
 
+## Web page
+
+The redirect URL, `http://<address>/`, answers with a short "It works" page:
+the device name, its address, the firmware and version, the chip and the
+uptime. Improv Wi-Fi clients open this URL after provisioning. Every path
+and method gets the same page; three sockets listen on port 80, so a
+browser's parallel connections are served.
+
 ## Status LED
 
 The WS2812 RGB LED on GPIO38, driven by the RMT peripheral at 80 MHz.

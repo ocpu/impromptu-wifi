@@ -18,6 +18,8 @@
 //! * **Status LED:** the WS2812 on GPIO8 shows whether the device is waiting,
 //!   joining or online, and blinks white when a BLE client sends Identify.
 //!   See the `led` module for the patterns.
+//! * **Web page:** `http://<address>/`, the redirect URL clients open after
+//!   provisioning, answers with an "it works" page. See the `web` module.
 //! * **Logs:** UART0, so they never interleave with serial frames.
 //!
 //! Both transports share one Wi-Fi controller through a [`WifiShare`], which
@@ -28,11 +30,12 @@
 #![no_main]
 
 mod led;
+mod web;
 
 use bt_hci::controller::ExternalController;
 use embassy_executor::Spawner;
 use embassy_futures::select::{select, select3, Either, Either3};
-use embassy_net::{Runner, StackResources};
+use embassy_net::{Runner, Stack, StackResources};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
@@ -132,6 +135,9 @@ impl Identify for Board {
 
 unsupported!(Board: HostnameProvider);
 
+/// The device object, `static` so the web page can borrow its strings.
+static BOARD: Board = Board;
+
 const CAPS: Capabilities = capabilities::<Wifi, Board>();
 
 /// The GAP and GATT services come from `add_gap_and_gatt`, whose GATT service
@@ -164,7 +170,8 @@ async fn main(spawner: Spawner) -> ! {
     // and reports http://<address> as the redirect URL.
     let controller = WifiController::new(peripherals.WIFI, Default::default())
         .expect("starting the Wi-Fi controller");
-    static NET: StaticCell<StackResources<3>> = StaticCell::new();
+    // One socket for DHCP, one per web server task.
+    static NET: StaticCell<StackResources<{ 1 + web::SOCKETS }>> = StaticCell::new();
     let seed = u64::from(Rng::new().random()) << 32 | u64::from(Rng::new().random());
     let (stack, runner) = embassy_net::new(
         Interface::station(),
@@ -173,6 +180,9 @@ async fn main(spawner: Spawner) -> ! {
         seed,
     );
     spawner.spawn(net_task(runner).expect("spawning the network task"));
+    for _ in 0..web::SOCKETS {
+        spawner.spawn(web_task(stack).expect("spawning a web task"));
+    }
 
     static RADIO: StaticCell<Radio> = StaticCell::new();
     let radio: &'static Radio = RADIO.init(WifiShare::new(PersistOnJoin::new(
@@ -247,6 +257,11 @@ fn nvs_offset(flash: &mut FlashStorage<'_>) -> Option<u32> {
 #[embassy_executor::task]
 async fn net_task(mut runner: Runner<'static, Interface>) -> ! {
     runner.run().await
+}
+
+#[embassy_executor::task(pool_size = web::SOCKETS)]
+async fn web_task(stack: Stack<'static>) -> ! {
+    web::serve(stack, web::About::of(&BOARD)).await
 }
 
 #[embassy_executor::task]
