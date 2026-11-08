@@ -54,7 +54,7 @@ the advertised state, and the name.
 ```text
 $ impromptu-wifi discover
 Scanning for 5s...
-D4:C1:9F:5C:52:8C   -46 dBm  needs authorization        Impromptu
+C0:FF:EE:00:00:01   -46 dBm  needs authorization        Impromptu
 ```
 
 A device that is provisioned stops advertising, so it is not listed.
