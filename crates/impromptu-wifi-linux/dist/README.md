@@ -1,8 +1,8 @@
 # Running impromptu-wifi-device as a service
 
 `impromptu-wifi-device` serves Improv on a serial port, over Bluetooth LE, or
-both, with NetworkManager for Wi-Fi and systemd-hostnamed for the hostname
-and device name. It needs no C library: serial ports and BlueZ's D-Bus API
+both, with NetworkManager or wpa_supplicant (`--backend`) for Wi-Fi and
+systemd-hostnamed for the hostname and device name. It needs no C library: serial ports and BlueZ's D-Bus API
 are used from Rust. For a Raspberry Pi, `examples/raspberry-pi` has static
 builds and a `setup.sh` that does the steps below.
 
@@ -31,11 +31,22 @@ the UART it's usually `/dev/serial0`, with the serial console disabled.
 Then, from another machine: `impromptu-wifi --port /dev/ttyACM0 provision --ssid …`,
 or over Bluetooth: `impromptu-wifi discover`, then `impromptu-wifi --ble <name> provision --ssid …`.
 
-Bluetooth is offered only while NetworkManager reports the machine offline,
-and stops as soon as it is online, whether through Improv Wi-Fi or any other
-way (a saved network rejoined at boot, a cable): there's no button to
-authorize with, so this keeps anyone in radio range from re-pointing a
-working machine. Interfaces NetworkManager doesn't manage don't count. If your distribution's BlueZ policy doesn't grant the `bluetooth`
+Bluetooth is offered only while the machine is offline, and stops as soon as
+it is online, whether through Improv Wi-Fi or any other way (a saved network
+rejoined at boot, a cable): there's no button to authorize with, so this
+keeps anyone in radio range from re-pointing a working machine. With
+NetworkManager, offline is its global state; interfaces it doesn't manage
+don't count. With wpa_supplicant, online is Wi-Fi associated with an
+address, or an IPv4 default route through any interface. `--ignore-wired`
+counts Wi-Fi only.
+
+Without NetworkManager (`--backend wpa-supplicant`, or `auto` when
+NetworkManager isn't running), the daemon uses wpa_supplicant's control
+socket in `/var/run/wpa_supplicant` (`--wpa-ctrl-dir`). Add the service user
+to the socket's group, `netdev` on Debian
+(`sudo usermod -aG netdev impromptu-wifi`), and set `update_config=1` in
+`wpa_supplicant.conf` so joined networks are saved. The address comes from
+whatever runs DHCP, such as dhcpcd. No polkit rule is needed for Wi-Fi then. If your distribution's BlueZ policy doesn't grant the `bluetooth`
 group access, the service needs to run as root for `--ble`.
 
 What the service does to NetworkManager: a successful join creates a saved

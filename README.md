@@ -164,7 +164,7 @@ Everything that parses or encodes takes a `Transport`, and the driver formats sc
 | `impromptu-wifi-embassy` | `ButtonAuth`, `Button`, `WifiShare` (with `status()` for an indicator), `keep_online`, a NOR-flash `FlashStore`, `trouble-host` bindings for both roles, and `embassy-net` helpers: complete and built here. The ESP32 backend (feature `esp`) is written against esp-radio 1.0.0-beta.1 and builds into complete ESP32-C6 and ESP32-S3 firmware (`examples/esp32c6`, `examples/esp32s3`). The ESP32-S3 firmware has run on one board (see its README); the ESP32-C6 firmware has not run on hardware |
 | `impromptu-wifi-host` | Serial complete and tested over a real pseudo-terminal; BLE through BlueZ (zbus) on Linux, tested against a stand-in BlueZ, and `btleplug` on macOS and Windows, type-checked only; neither run against hardware yet |
 | `impromptu-wifi-cli` | Complete for serial (end-to-end tests run the real binary); BLE commands untested on hardware |
-| `impromptu-wifi-linux` | NetworkManager, hostnamed and serial complete, tested over real D-Bus against stand-in services; the BlueZ peripheral is built and type-checked, not yet run against hardware. Verify both on a real machine |
+| `impromptu-wifi-linux` | NetworkManager, wpa_supplicant, hostnamed, serial and the BlueZ peripheral complete; tested against stand-in services (D-Bus, and a wpa_supplicant control socket), and on a Raspberry Pi Zero W with both Wi-Fi backends over BLE (see `examples/raspberry-pi`). Serial not yet run on hardware |
 
 ## Development
 
