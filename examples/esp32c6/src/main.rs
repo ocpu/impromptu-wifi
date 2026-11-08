@@ -209,6 +209,27 @@ async fn main(spawner: Spawner) -> ! {
     }
 }
 
+/// A random static Bluetooth address derived from the chip's factory MAC:
+/// the same on every boot, and different from the address other firmware on
+/// this chip used.
+///
+/// Clients cache a device's GATT layout by address, and this firmware has no
+/// Service Changed or Database Hash characteristic to invalidate such a
+/// cache. With the chip's public address, an ESPHome Bluetooth proxy that
+/// had seen earlier firmware on the chip kept using that firmware's layout.
+fn ble_address() -> Address {
+    let mac = esp_hal::efuse::base_mac_address();
+    // Least significant byte first, as the controller takes it.
+    let mut addr = [0u8; 6];
+    for (dst, src) in addr.iter_mut().zip(mac.as_bytes().iter().rev()) {
+        *dst = *src;
+    }
+    // A static random address has its two most significant bits set
+    // (Bluetooth Core Specification, Vol 6, Part B, 1.3.2.1).
+    addr[5] |= 0xC0;
+    Address::random(addr)
+}
+
 /// Where the `nvs` partition starts, from the partition table in flash.
 fn nvs_offset(flash: &mut FlashStorage<'_>) -> Option<u32> {
     let mut buf = [0u8; PARTITION_TABLE_MAX_LEN];
@@ -277,7 +298,9 @@ async fn serial_task(jtag: UsbSerialJtag<'static, Async>, wifi: Wifi, mut joins:
 async fn ble<C: Controller>(controller: C, radio: &'static Radio, mut joins: Joins) {
     let mut wifi: Wifi = radio.handle();
     let mut resources: HostResources<C, DefaultPacketPool, 1, 1> = HostResources::new();
-    let stack = trouble_host::new(controller, &mut resources).build();
+    let stack = trouble_host::new(controller, &mut resources)
+        .set_random_address(ble_address())
+        .build();
     let mut peripheral = stack.peripheral();
     let mut runner = stack.runner();
     let server = Server::new_with_config(GapConfig::Peripheral(PeripheralConfig {
