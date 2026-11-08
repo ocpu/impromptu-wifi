@@ -36,12 +36,14 @@ mod auth;
 pub mod esp;
 #[cfg(feature = "embassy-net")]
 pub mod net;
+pub mod shared;
 #[cfg(any(feature = "trouble", feature = "trouble-central"))]
 pub mod trouble;
 #[cfg(feature = "usb")]
 pub mod usb;
 
 pub use auth::ButtonAuth;
+pub use shared::SharedWifi;
 
 pub use impromptu_wifi_ble::{BleClientLink, BleLink};
 pub use impromptu_wifi_client::Client;

@@ -74,6 +74,52 @@ pub const fn service_data(state: State, caps: Capabilities) -> [u8; 6] {
     [state as u8, caps.bits(), 0, 0, 0, 0]
 }
 
+/// Length of a legacy BLE advertisement payload.
+pub const ADVERTISING_DATA_LEN: usize = 31;
+
+/// A complete legacy advertisement payload for an Improv Wi-Fi device, in
+/// the AD structure format of the Bluetooth Core Specification (Vol 3,
+/// Part C, Section 11), ready to hand to any BLE stack:
+///
+/// | Bytes | AD type | Content |
+/// |---|---|---|
+/// | 0–2 | `0x01` Flags | `0x06`: LE General Discoverable, BR/EDR not supported |
+/// | 3–20 | `0x07` Complete list of 128-bit service UUIDs | [`SERVICE_UUID`] |
+/// | 21–30 | `0x16` Service data, 16-bit UUID | `0x4677` and [`service_data`] |
+///
+/// The spec requires the service UUID and the service data in the same
+/// advertisement, not the scan response; together with the flags they fill
+/// all 31 bytes, so a device name has to go in the scan response.
+pub const fn advertising_data(state: State, caps: Capabilities) -> [u8; ADVERTISING_DATA_LEN] {
+    let mut ad = [0u8; ADVERTISING_DATA_LEN];
+    // Flags.
+    ad[0] = 2;
+    ad[1] = 0x01;
+    ad[2] = 0x06;
+    // Complete list of 128-bit service UUIDs, least significant byte first.
+    ad[3] = 17;
+    ad[4] = 0x07;
+    let uuid = SERVICE_UUID.to_le_bytes();
+    let mut i = 0;
+    while i < 16 {
+        ad[5 + i] = uuid[i];
+        i += 1;
+    }
+    // Service data for the 16-bit UUID 0x4677.
+    ad[21] = 9;
+    ad[22] = 0x16;
+    let id = SERVICE_DATA_UUID16.to_le_bytes();
+    ad[23] = id[0];
+    ad[24] = id[1];
+    let data = service_data(state, caps);
+    let mut j = 0;
+    while j < 6 {
+        ad[25 + j] = data[j];
+        j += 1;
+    }
+    ad
+}
+
 /// Read the state and capabilities from advertised service data, so a client
 /// can list devices without connecting.
 ///
@@ -206,6 +252,39 @@ impl<const N: usize> RpcAssembler<N> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn advertising_data_is_three_ad_structures_in_31_bytes() {
+        let caps = Capabilities::DEVICE_INFO | Capabilities::SCAN;
+        let ad = advertising_data(State::Authorized, caps);
+        // Walk the AD structures: each is length, type, data.
+        let mut found: [(u8, &[u8]); 3] = [(0, &[]); 3];
+        let (mut i, mut n) = (0, 0);
+        while i < ad.len() {
+            let len = usize::from(ad[i]);
+            found[n] = (ad[i + 1], &ad[i + 2..i + 1 + len]);
+            i += 1 + len;
+            n += 1;
+        }
+        assert_eq!(n, 3, "three AD structures");
+        assert_eq!(i, ADVERTISING_DATA_LEN, "the structures fill it exactly");
+        assert_eq!(found[0], (0x01, &[0x06][..]));
+        assert_eq!(found[1].0, 0x07);
+        assert_eq!(
+            found[1].1,
+            &[
+                0x00, 0x80, 0x26, 0x78, 0x74, 0x27, 0x63, 0x46, 0x72, 0x22, 0x28, 0x62, 0x68, 0x77,
+                0x46, 0x00
+            ][..],
+            "00467768-6228-2272-4663-277478268000, least significant byte first"
+        );
+        assert_eq!(found[2].0, 0x16);
+        assert_eq!(
+            found[2].1,
+            &[0x77, 0x46, 0x02, caps.bits(), 0, 0, 0, 0][..],
+            "UUID 0x4677, then state and capabilities"
+        );
+    }
     use crate::Command;
 
     #[test]

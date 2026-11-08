@@ -53,6 +53,14 @@ impl<B: Wait> ButtonAuth<B> {
         self.deadline
     }
 
+    /// Whether a press is still in effect. A BLE application that creates a
+    /// driver per connection uses this to carry an authorization from before
+    /// the connection into the new driver's
+    /// [`Machine::authorize`](impromptu_wifi_core::Machine::authorize).
+    pub fn is_authorized(&self) -> bool {
+        self.deadline.is_some_and(|d| d > Instant::now())
+    }
+
     async fn press(&mut self) {
         loop {
             let edge = if self.active_low {

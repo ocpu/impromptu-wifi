@@ -23,7 +23,7 @@ env:
   # random red build. Bump together with fixes for any new warnings.
   RUST_STABLE: "1.99.1"
   # Host-buildable features. `esp` needs a chip feature and is
-  # covered by the esp32c6 job; `defmt` is covered by the no_std jobs.
+  # covered by the esp32c6 example job; `defmt` by the no_std jobs.
   HOST_FEATURES: >-
     impromptu-wifi-embassy/trouble,impromptu-wifi-embassy/trouble-central,impromptu-wifi-embassy/usb,impromptu-wifi-embassy/embassy-net,impromptu-wifi-linux/daemon,impromptu-wifi/embassy-trouble,impromptu-wifi/embassy-trouble-central,impromptu-wifi/embassy-usb,impromptu-wifi/embassy-net,impromptu-wifi/host-serial,impromptu-wifi/host-ble,impromptu-wifi/linux-networkmanager,impromptu-wifi/linux-hostnamed,impromptu-wifi/linux-serial,impromptu-wifi/linux-bluez
   # The crates that claim `no_std` without impromptu-wifi-embassy. The
@@ -129,7 +129,9 @@ jobs:
         run: cargo build --locked -p impromptu-wifi --features ${{ matrix.facade_features }} --target ${{ matrix.target }}
 
   esp32c6:
-    name: ESP32-C6 backend
+    # Builds and links the example firmware, which uses the ESP32 backend,
+    # the trouble-host bindings and esp-radio's BLE controller together.
+    name: ESP32-C6 example
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -137,11 +139,16 @@ jobs:
         with:
           toolchain: ${{ env.RUST_STABLE }}
           targets: riscv32imac-unknown-none-elf
+          components: clippy, rustfmt
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          workspaces: ci/esp32c6-check
-      - working-directory: ci/esp32c6-check
-        run: cargo build --locked --target riscv32imac-unknown-none-elf
+          workspaces: examples/esp32c6
+      - working-directory: examples/esp32c6
+        run: cargo fmt --check
+      - working-directory: examples/esp32c6
+        run: cargo clippy --locked -- -D warnings
+      - working-directory: examples/esp32c6
+        run: cargo build --locked --release
 
   msrv:
     name: MSRV (${{ matrix.rust }})
@@ -184,4 +191,4 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - run: python3 -I scripts/check-dep-age.py --min-days 14 Cargo.lock ci/esp32c6-check/Cargo.lock
+      - run: python3 -I scripts/check-dep-age.py --min-days 14 Cargo.lock examples/esp32c6/Cargo.lock

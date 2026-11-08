@@ -136,3 +136,18 @@ fn restart_timeout_does_not_authorize() {
     auth.restart_timeout();
     assert!(auth.deadline().is_none(), "no press, no authorization");
 }
+
+#[test]
+fn is_authorized_follows_the_deadline() {
+    let pin = FakePin::default();
+    let mut auth = ButtonAuth::active_low(pin.clone(), TIMEOUT);
+    assert!(!auth.is_authorized());
+    pin.press();
+    block_on(auth.next());
+    assert!(auth.is_authorized());
+    block_on(Timer::after(TIMEOUT + Duration::from_millis(20)));
+    assert!(
+        !auth.is_authorized(),
+        "expired even before next() reports it"
+    );
+}

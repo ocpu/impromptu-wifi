@@ -25,7 +25,10 @@
 //! on that client can listen at the same time.
 
 use impromptu_wifi_ble::{GattClient as ImprovWifiGattClient, Notification};
-use trouble_host::config::{GATT_CLIENT_NOTIFICATION_MTU, GATT_CLIENT_NOTIFICATION_QUEUE_SIZE};
+use trouble_host::config::GATT_CLIENT_NOTIFICATION_QUEUE_SIZE;
+
+/// The notification buffer size trouble-host 0.7 uses for every listener.
+const NOTIFICATION_MTU: usize = 512;
 use trouble_host::prelude::*;
 
 /// Smallest notification queue that holds a full Improv burst.
@@ -63,7 +66,7 @@ pub struct TroubleGattClient<'a, 'r, C: Controller, P: PacketPool, const MAX_SER
     rpc_command: Characteristic<[u8]>,
     rpc_result: Characteristic<[u8]>,
     capabilities: Characteristic<[u8]>,
-    listener: NotificationListener<'a, GATT_CLIENT_NOTIFICATION_MTU>,
+    listener: NotificationListener<'a, NOTIFICATION_MTU>,
 }
 
 impl<'a, 'r, C: Controller, P: PacketPool, const MAX_SERVICES: usize>

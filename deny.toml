@@ -2,7 +2,7 @@
 [graph]
 all-features = false
 # The ESP32 backend needs a chip feature that only a firmware crate selects;
-# ci/esp32c6-check covers it.
+# the examples/esp32c6 firmware covers it.
 features = [
     "impromptu-wifi-embassy/trouble",
     "impromptu-wifi-embassy/trouble-central",
